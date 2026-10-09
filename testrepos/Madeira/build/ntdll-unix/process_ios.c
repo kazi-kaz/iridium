@@ -623,7 +623,7 @@ NTSTATUS WINAPI __wine_unix_spawnvp( char * const argv[], int wait )
     pid_t pid, wret;
     int fd[2], status, err;
 
-#ifdef HAVE_PIPE2
+#if defined(HAVE_PIPE2) && !defined(WINE_IOS)
     if (pipe2( fd, O_CLOEXEC ) == -1)
 #endif
     {
@@ -729,7 +729,7 @@ static NTSTATUS fork_and_exec( OBJECT_ATTRIBUTES *attr, const char *unix_name, i
     char **argv;
     NTSTATUS status = STATUS_SUCCESS;
 
-#ifdef HAVE_PIPE2
+#if defined(HAVE_PIPE2) && !defined(WINE_IOS)
     if (pipe2( fd, O_CLOEXEC ) == -1)
 #endif
     {
