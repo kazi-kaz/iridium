@@ -2891,7 +2891,9 @@ extern void ios_reserve_fex_arena(void);  /* ml756, virtual_ios.c */
 static void start_main_thread(void)
 {
 #ifdef WINE_IOS
-#define WINE_IOS_LOG(msg) do { os_log(OS_LOG_DEFAULT, "[Wine init] " msg); } while(0)
+/* Diagnostic: also write to stderr so the step reaches the runtime log file
+ * (os_log only goes to the system log, which sideloaded users cannot read). */
+#define WINE_IOS_LOG(msg) do { os_log(OS_LOG_DEFAULT, "[Wine init] " msg); dprintf(2, "[Wine init] " msg "\n"); } while(0)
 #else
 #define WINE_IOS_LOG(msg)
 #endif
