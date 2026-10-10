@@ -472,6 +472,7 @@ private struct DiagnosticsSettingsView: View {
 private struct RuntimeLaunchPreferences: View {
     @AppStorage(MadeiraResolution.key) private var width = 960
     @AppStorage("IridiumJITPoolMB") private var pool = 0
+    @AppStorage("IridiumVerboseTrace") private var verboseTrace = false
     var body: some View {
         List {
             Section("Display Resolution") {
@@ -498,6 +499,19 @@ private struct RuntimeLaunchPreferences: View {
                     }
                 }
                 Text("Iridium can use a smaller pool when memory is limited. Some games need more code memory.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Debug Trace") {
+                ForEach([false, true], id: \.self) { enabled in
+                    MenuButton { verboseTrace = enabled } label: {
+                        HStack {
+                            Text(enabled ? "On" : "Off")
+                            Spacer()
+                            if verboseTrace == enabled { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+                Text("Logs file opens, system calls and module loads for the next launch. For diagnosing crashes only: it makes games much slower and logs very large.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

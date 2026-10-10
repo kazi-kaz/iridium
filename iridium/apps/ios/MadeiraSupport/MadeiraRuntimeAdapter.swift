@@ -215,6 +215,14 @@ enum MadeiraRuntimeAdapter {
                 }
                 guard current() else { return }
                 ws_log_quiet = 1
+                // Diagnostic: Settings > Display & Memory > Debug Trace turns on Wine's
+                // verbose channels (file opens, syscalls, module loads) for this launch.
+                if UserDefaults.standard.bool(forKey: "IridiumVerboseTrace") {
+                    setenv("MADEIRA_DEBUG_VERBOSE", "1", 1)
+                    RuntimeLogCapture.writeLine("[Launch] Debug trace enabled: verbose Wine logging is on for this launch.")
+                } else {
+                    unsetenv("MADEIRA_DEBUG_VERBOSE")
+                }
                 // Use Madeira's request-triggered wake path. Fixed polling adds
                 // up to 1 ms to each serial server request. Keep an explicit
                 // MADEIRA_SRV_NOSEM=1 override available for comparisons.
