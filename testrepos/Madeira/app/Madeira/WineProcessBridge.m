@@ -1079,6 +1079,33 @@ static void *wine_process_thread(void *arg) {
                 }
             }
 
+            /* Hand the fixed-base executable window to Wine.
+             *
+             * JITAllocator.c's constructor (madeira_early_va_claim) holds
+             * [0x140000000, +128MB) PROT_NONE from before main so nothing else can
+             * take the address a non-relocatable main image needs. virtual_ios.c
+             * releases that hold to the image -- but only when WINE_IOS_EXE_WINDOW
+             * names it, and nothing exported it. Without it the app's own
+             * reservation refuses the image's preferred base, the loader cannot
+             * relocate an image with stripped relocations, and the game dies with
+             * "failed to create main module ... c0000018" (DELTARUNE.exe:
+             * charact=0x23, no .reloc). Set before the madeira.cfg env block so a
+             * cfg line can still override it. */
+            {
+                extern unsigned long madeira_early_window_base, madeira_early_window_size;
+                if (madeira_early_window_base && madeira_early_window_size) {
+                    char win[64];
+                    snprintf(win, sizeof(win), "%lx:%lx", madeira_early_window_base, madeira_early_window_size);
+                    setenv("WINE_IOS_EXE_WINDOW", win, 1);
+                    fprintf(stderr, "[exe-window] app holds [%#lx,%#lx); exported WINE_IOS_EXE_WINDOW=%s\n",
+                            madeira_early_window_base, madeira_early_window_base + madeira_early_window_size, win);
+                } else {
+                    unsetenv("WINE_IOS_EXE_WINDOW");
+                    fprintf(stderr, "[exe-window] app does NOT hold 0x140000000 (constructor claim failed); "
+                            "a main image with stripped relocations cannot start this session\n");
+                }
+            }
+
             /* ml1062: Documents/madeira-env.txt -- one KEY=VALUE per line, exported
              * before Wine starts. FEX reads its whole configuration from FEX_*
              * environment variables (EnvLoader over the process environment, which
