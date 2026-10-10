@@ -13098,11 +13098,29 @@ int ios_jit_copy_module_for_child(void *module_addr, void *child_peb)
         uint64_t *p = (uint64_t *)rw_dest;
         uint64_t *end = (uint64_t *)(rw_dest + (m->size & ~(size_t)7));
         int swept = 0;
+        int declined = 0;
         for (; p < end; p++)
         {
             if (*p >= pj && *p < pj + m->size)
             {
                 uint64_t nv = (uintptr_t)rx_dest + (*p - pj);
+                /* The range test alone is a heuristic, and it breaks when the
+                 * pool sits at a low address: with the pool at 0x300000000 any
+                 * pair of 32-bit fields {lo = small offset, hi = 3} reads as a
+                 * "pool pointer".  pseudoregalia's child died on exactly that:
+                 * ntdll +0x13b530 holds 0x300140065 (two ints inside the CHPE
+                 * metadata); rebasing it turned the CodeMap RVA into
+                 * 0x11004065 and ios_jit_mark_ec_ranges_for_copy faulted
+                 * reading it.  What the unix side really plants here are
+                 * pool ALIASES OF CODE (thunks), so require a 4-byte-aligned
+                 * target inside an executable section of the module. */
+                if ((*p & 3) || !ios_img_off_is_exec( rw_dest, m->size, (size_t)(*p - pj) ))
+                {
+                    if (declined++ < 8)
+                        dprintf(2, "[child-ntdll]   pool-ptr DECLINED @+0x%lx: 0x%llx (not an aligned code alias)\n",
+                                (unsigned long)((char *)p - rw_dest), (unsigned long long)*p);
+                    continue;
+                }
                 dprintf(2, "[child-ntdll]   pool-ptr rebase @+0x%lx: 0x%llx -> 0x%llx\n",
                         (unsigned long)((char *)p - rw_dest),
                         (unsigned long long)*p, (unsigned long long)nv);
