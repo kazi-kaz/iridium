@@ -26,6 +26,21 @@ import Foundation
         assert(seen == 512)
         assert(defaults.integer(forKey: MadeiraJITPoolPolicy.preferenceKey) == 512)
 
+        // A game's iridium.cfg size wins for the allocation, then the setting returns.
+        defaults.set(256, forKey: MadeiraJITPoolPolicy.preferenceKey)
+        MadeiraJITPoolPolicy.withEffectiveLimit(defaults: defaults, gameLimitMB: 512) {
+            seen = defaults.integer(forKey: MadeiraJITPoolPolicy.preferenceKey)
+        }
+        assert(seen == 512)
+        assert(defaults.integer(forKey: MadeiraJITPoolPolicy.preferenceKey) == 256)
+
+        defaults.removeObject(forKey: MadeiraJITPoolPolicy.preferenceKey)
+        MadeiraJITPoolPolicy.withEffectiveLimit(defaults: defaults, gameLimitMB: 128) {
+            seen = defaults.integer(forKey: MadeiraJITPoolPolicy.preferenceKey)
+        }
+        assert(seen == 128)
+        assert(defaults.object(forKey: MadeiraJITPoolPolicy.preferenceKey) == nil)
+
         print("JIT pool policy passed")
     }
 }

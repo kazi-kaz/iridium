@@ -16,6 +16,11 @@ struct GamePreparationCheck {
         precondition(path == "C:\\IridiumGame\\game.exe")
         let copy = prefix.appendingPathComponent("drive_c/IridiumGame")
         precondition(!fm.fileExists(atPath: copy.appendingPathComponent(".iridium").path))
+        // A game's iridium.cfg configures the launch: it is never copied, and
+        // adding or editing it is not a source change.
+        try Data("jit-pool-mb = 512\n".utf8).write(to: game.appendingPathComponent(MadeiraGamePreparation.gameConfigName))
+        _ = try MadeiraGamePreparation.prepare(executable: exe, gameRoot: game, prefix: prefix)
+        precondition(!fm.fileExists(atPath: copy.appendingPathComponent(MadeiraGamePreparation.gameConfigName).path))
         try Data([9]).write(to: copy.appendingPathComponent("save.dat"))
         let originalSave = try Data(contentsOf: game.appendingPathComponent("save.dat"))
         precondition(originalSave == Data([3]))
@@ -26,6 +31,6 @@ struct GamePreparationCheck {
             _ = try MadeiraGamePreparation.prepare(executable: exe, gameRoot: prefix, prefix: prefix)
             fatalError("accepted executable outside game root")
         } catch is CocoaError {}
-        print("PASS: isolated game copy, preserved original saves, persistent test saves, path boundary")
+        print("PASS: isolated game copy, preserved original saves, persistent test saves, path boundary, iridium.cfg kept out")
     }
 }

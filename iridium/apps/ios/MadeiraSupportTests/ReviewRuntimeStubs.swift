@@ -48,7 +48,7 @@ enum IridiumGamePrerequisites {
 enum MadeiraControllerInstall { static func install(prefix: URL, windowsExecutable: String) throws {} }
 @MainActor enum MadeiraHardwareInput { static var acceptingInput = true; static func stop() {} }
 struct MadeiraKeys { mutating func releaseAll()->[Int32] { [] }; mutating func update(name:String,value:Double)->[(Int32,Bool)] { [] } }
-enum MadeiraJITPoolPolicy { static let preferenceKey="AdapterTestPool"; static func effectiveLimitMB(requested:Int)->Int { 64 }; static func withEffectiveLimit<T>(_ f:()->T)->T { f() } }
+enum MadeiraJITPoolPolicy { static let preferenceKey="AdapterTestPool"; static func effectiveLimitMB(requested:Int)->Int { 64 }; static func withEffectiveLimit<T>(gameLimitMB: Int? = nil, _ f:()->T)->T { f() } }
 enum StikJITHelper {
     enum Route { case automatic }
     struct Pool { let rx: UnsafeMutableRawPointer; let rw: UnsafeMutableRawPointer; let size: Int }

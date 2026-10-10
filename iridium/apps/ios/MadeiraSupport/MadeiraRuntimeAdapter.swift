@@ -95,6 +95,16 @@ enum MadeiraRuntimeAdapter {
         winios_display_mode_changed(Int32(resolution.rawValue), Int32(resolution.height))
         unsetenv("MADEIRA_ARGS")
         setenv("IRIDIUM_MADEIRA_ARGS_JSON", cube ? "[]" : encodedArguments, 1)
+        // The game's own iridium.cfg wins over madeira.cfg for this launch. Set
+        // before the server starts so every native madeira.cfg reader sees it.
+        let gameConfig = cube ? nil : MadeiraGameConfig.locate(gameRoot: URL(fileURLWithPath: gameRoot))
+        let gamePoolMB = MadeiraGameConfig.jitPoolMB(in: gameConfig)
+        if let gameConfig {
+            setenv(MadeiraGameConfig.environmentKey, gameConfig.path, 1)
+            RuntimeLogCapture.writeLine("[Launch] Using per-game config \(gameConfig.path).")
+        } else {
+            unsetenv(MadeiraGameConfig.environmentKey)
+        }
         jit_install_trap_handler()
         _ = LogStore.shared
         RuntimeLogCapture.writeLine("[Launch] Waiting for JIT permission.")
@@ -188,12 +198,14 @@ enum MadeiraRuntimeAdapter {
                 }
                 guard current() else { return }
                 RuntimeLogCapture.writeLine("[Launch] Reserving memory for translated game code.")
-                let requestedPoolMB = UserDefaults.standard.integer(forKey: MadeiraJITPoolPolicy.preferenceKey)
+                let requestedPoolMB = gamePoolMB ?? UserDefaults.standard.integer(forKey: MadeiraJITPoolPolicy.preferenceKey)
                 let effectivePoolMB = MadeiraJITPoolPolicy.effectiveLimitMB(requested: requestedPoolMB)
-                if effectivePoolMB != requestedPoolMB {
+                if let gamePoolMB {
+                    RuntimeLogCapture.writeLine("[Launch] Per-game config sets the JIT memory limit to \(gamePoolMB) MB.")
+                } else if effectivePoolMB != requestedPoolMB {
                     RuntimeLogCapture.writeLine("[Launch] Automatic JIT memory capped at \(effectivePoolMB) MB because debugger-backed pages count toward the app memory footprint.")
                 }
-                guard let pool = MadeiraJITPoolPolicy.withEffectiveLimit({ StikJITHelper.allocateAdaptivePool() }) else {
+                guard let pool = MadeiraJITPoolPolicy.withEffectiveLimit(gameLimitMB: gamePoolMB, { StikJITHelper.allocateAdaptivePool() }) else {
                     failure("Cannot allocate JIT memory. Restart Iridium, then try a smaller JIT memory limit.")
                     return
                 }

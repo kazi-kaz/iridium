@@ -8,13 +8,17 @@ enum MadeiraJITPoolPolicy {
         requested == 0 ? automaticSafeLimitMB : requested
     }
 
+    /// Runs `body` with the preference holding the limit to use. `gameLimitMB` (a
+    /// game's iridium.cfg jit-pool-mb) replaces the JIT Memory Limit setting;
+    /// the stored setting is restored afterwards either way.
     static func withEffectiveLimit<T>(
         defaults: UserDefaults = .standard,
+        gameLimitMB: Int? = nil,
         _ body: () -> T
     ) -> T {
-        let requested = defaults.integer(forKey: preferenceKey)
-        let effective = effectiveLimitMB(requested: requested)
-        guard effective != requested else { return body() }
+        let stored = defaults.integer(forKey: preferenceKey)
+        let effective = effectiveLimitMB(requested: gameLimitMB ?? stored)
+        guard effective != stored else { return body() }
 
         let previous = defaults.object(forKey: preferenceKey)
         defaults.set(effective, forKey: preferenceKey)

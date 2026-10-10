@@ -354,6 +354,63 @@ int wine_crash_exit_status(uint32_t *status) {
 }
 static char *g_prefix_path = NULL;
 
+/* Environment exports from madeira.cfg and the launched game's iridium.cfg.
+ *
+ * WINEDLLOVERRIDES is merged, not replaced: Iridium sets it to route XInput to
+ * the controller bridge before Wine starts, and a cfg line used to overwrite
+ * that and silently disconnect controllers. A cfg value is appended after ';'
+ * instead. Wine's loader keeps the LAST entry for a DLL (loadorder.c
+ * add_load_order), so cfg entries still win for the DLLs they name. An empty
+ * value (env.WINEDLLOVERRIDES =) clears the variable as before.
+ *
+ * Each Wine start first undoes the previous start's exports. Iridium runs one
+ * session per app run today; this keeps one game's iridium.cfg from reaching a
+ * later start if that changes. A variable is restored only while it still holds
+ * the value set here; one the app has set again since (the adapter sets
+ * WINEDLLOVERRIDES before every start) is left alone. Pure C, host-tested (build/host-tests/check-game-cfg.py). */
+#define MADEIRA_CFG_ENV_MAX 256
+static struct { char *key, *prior, *ours; } g_cfg_env[MADEIRA_CFG_ENV_MAX];
+static int g_cfg_env_count;
+
+static void madeira_cfg_env_restore(void)
+{
+    for (int i = 0; i < g_cfg_env_count; i++) {
+        const char *cur = getenv(g_cfg_env[i].key);
+        if (cur && g_cfg_env[i].ours && !strcmp(cur, g_cfg_env[i].ours)) {
+            if (g_cfg_env[i].prior) setenv(g_cfg_env[i].key, g_cfg_env[i].prior, 1);
+            else unsetenv(g_cfg_env[i].key);
+        }
+        free(g_cfg_env[i].key); free(g_cfg_env[i].prior); free(g_cfg_env[i].ours);
+    }
+    g_cfg_env_count = 0;
+}
+
+/* Export k=v and return the value now in effect (owned by the environment). */
+static const char *madeira_cfg_env_set(const char *k, const char *v)
+{
+    const char *cur = getenv(k);
+    char *val = NULL;
+    int i;
+    if (!strcmp(k, "WINEDLLOVERRIDES") && cur && *cur && *v) {
+        size_t n = strlen(cur) + strlen(v) + 2;
+        if ((val = malloc(n))) snprintf(val, n, "%s;%s", cur, v);
+    } else {
+        val = strdup(v);
+    }
+    if (!val) return getenv(k);
+    for (i = 0; i < g_cfg_env_count && strcmp(g_cfg_env[i].key, k); i++) {}
+    if (i == g_cfg_env_count && i < MADEIRA_CFG_ENV_MAX) {
+        g_cfg_env[i].key = strdup(k);
+        g_cfg_env[i].prior = cur ? strdup(cur) : NULL;
+        g_cfg_env[i].ours = NULL;
+        g_cfg_env_count++;
+    }
+    setenv(k, val, 1);
+    if (i < g_cfg_env_count) { free(g_cfg_env[i].ours); g_cfg_env[i].ours = val; }
+    else free(val);
+    return getenv(k);
+}
+
 /* Export MADEIRA_DOCS_DIR before main(), while HOME is still the app container.
  * The in-app wineserver thread sets HOME to the Wine prefix before it creates its
  * first object, and madsync reads madeira.cfg inproc-sync right there (then keeps
@@ -1115,11 +1172,12 @@ static void *wine_process_thread(void *arg) {
              * always says what it ran with. */
             {
                 /* ml1095: "env.NAME = value" lines of madeira.cfg; the legacy
-                 * madeira-env.txt (KEY=VALUE lines) only when madeira.cfg is absent. */
-                NSString *text = nil;
-                if (madeira_cfg_present()) {
+                 * madeira-env.txt (KEY=VALUE lines) only when madeira.cfg is absent.
+                 * Then the same "env." lines of the game's iridium.cfg
+                 * ($MADEIRA_GAME_CFG), which win for this launch. */
+                NSString *(^envLines)(NSString *) = ^NSString *(NSString *path) {
                     NSMutableString *acc = [NSMutableString string];
-                    NSString *cfg = [NSString stringWithContentsOfFile:[docs stringByAppendingPathComponent:@MADEIRA_CFG_FILE] encoding:NSUTF8StringEncoding error:nil];
+                    NSString *cfg = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
                     for (NSString *raw in [cfg componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
                         NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
                         NSRange eq = [line rangeOfString:@"="];
@@ -1128,18 +1186,37 @@ static void *wine_process_thread(void *arg) {
                         NSString *v = [[line substringFromIndex:eq.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
                         if (k.length) [acc appendFormat:@"%@=%@\n", k, v];
                     }
-                    text = acc;
+                    return acc;
+                };
+                madeira_cfg_env_restore();
+                NSString *text = nil;
+                if (madeira_cfg_present()) {
+                    text = envLines([docs stringByAppendingPathComponent:@MADEIRA_CFG_FILE]);
                 } else {
                     text = [NSString stringWithContentsOfFile:[docs stringByAppendingPathComponent:@"madeira-env.txt"] encoding:NSUTF8StringEncoding error:nil];
                 }
-                for (NSString *raw in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
-                    NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                    NSRange eq = [line rangeOfString:@"="];
-                    if (!line.length || [line hasPrefix:@"#"] || eq.location == NSNotFound || eq.location == 0) continue;
-                    NSString *k = [line substringToIndex:eq.location], *v = [line substringFromIndex:eq.location + 1];
-                    setenv(k.UTF8String, v.UTF8String, 1);
-                    LOG("madeira.cfg env: %{public}s=%{public}s", k.UTF8String, v.UTF8String);
-                    fprintf(stderr, "[madeira-env] ml1062 %s=%s\n", k.UTF8String, v.UTF8String);
+                const char *gamePath = madeira_cfg_game_path();
+                NSString *gameText = nil;
+                if (gamePath && access(gamePath, R_OK) == 0) {
+                    gameText = envLines(@(gamePath));
+                    fprintf(stderr, "[game-cfg] using %s\n", gamePath);
+                } else if (gamePath) {
+                    fprintf(stderr, "[game-cfg] %s is not readable; using madeira.cfg only\n", gamePath);
+                }
+                for (int pass = 0; pass < 2; pass++) {
+                    NSString *body = pass ? gameText : text;
+                    for (NSString *raw in [body componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+                        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSRange eq = [line rangeOfString:@"="];
+                        if (!line.length || [line hasPrefix:@"#"] || eq.location == NSNotFound || eq.location == 0) continue;
+                        NSString *k = [line substringToIndex:eq.location], *v = [line substringFromIndex:eq.location + 1];
+                        const char *now = madeira_cfg_env_set(k.UTF8String, v.UTF8String);
+                        LOG("%{public}s env: %{public}s=%{public}s", pass ? "iridium.cfg" : "madeira.cfg", k.UTF8String, v.UTF8String);
+                        if (pass) fprintf(stderr, "[madeira-env] game %s=%s\n", k.UTF8String, v.UTF8String);
+                        else fprintf(stderr, "[madeira-env] ml1062 %s=%s\n", k.UTF8String, v.UTF8String);
+                        if (now && strcmp(now, v.UTF8String))
+                            fprintf(stderr, "[madeira-env] merged %s=%s\n", k.UTF8String, now);
+                    }
                 }
                 /* Fastsync is the default sync engine: with neither inproc-sync nor
                  * env.MADEIRA_FASTSYNC in madeira.cfg, Wine gets MADEIRA_FASTSYNC=auto,

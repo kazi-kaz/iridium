@@ -91,6 +91,28 @@ In **Settings → Runtime → Display & Memory**, choose resolution and the maxi
 JIT code pool for the next launch. Automatic checks the current app memory
 limit and tries smaller pools if allocation fails. Smaller pools can limit games.
 
+### Per-game configuration
+
+`madeira.cfg` in Iridium's Files folder applies to every game. To change a
+setting for one game only, put an `iridium.cfg` in that game's folder (Files:
+Iridium → Games → the game). For a game outside that folder, such as a Steam
+install, use `GameConfigs/<game folder name>.cfg` in Iridium's Files folder.
+The file uses `madeira.cfg` syntax and is read after it, so its keys win for
+that game:
+
+```
+# pseudoregalia: Unreal needs the large JIT pool
+jit-pool-mb = 512
+env.FEX_MULTIBLOCK = 0
+```
+
+`jit-pool-mb` (128, 256 or 512) replaces the JIT Memory Limit setting for that
+game. `env.` lines are exported like those in `madeira.cfg`; the log shows each
+as `[madeira-env] game NAME=value`. `env.WINEDLLOVERRIDES` lines, in either
+file, are appended to the controller bridge's XInput overrides instead of
+replacing them; an empty value clears them. The file is not copied into the
+isolated game copy.
+
 In **Launch Support → External JIT App**, select the route. Automatic tries
 LiveContainer2, StikDebug, LiveContainer, then a LiveContainer3 fallback. Pending
 JIT requests are bounded; close the player to cancel, and restart if requested.

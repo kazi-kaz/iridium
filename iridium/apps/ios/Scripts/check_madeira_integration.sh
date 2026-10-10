@@ -24,6 +24,10 @@ xcrun swiftc "$root/MadeiraSupport/MadeiraPointerContact.swift" \
 xcrun swiftc "$root/MadeiraSupport/MadeiraJITPoolPolicy.swift" \
   "$root/MadeiraSupportTests/JITPoolPolicyCheck.swift" -o "$check_binary"
 "$check_binary"
+xcrun swiftc "$root/MadeiraSupport/MadeiraGameConfig.swift" \
+  "$root/MadeiraSupport/MadeiraGamePreparation.swift" \
+  "$root/MadeiraSupportTests/GameConfigCheck.swift" -o "$check_binary"
+"$check_binary"
 xcrun swiftc "$root/MadeiraSupport/MadeiraExternalJITRouting.swift" \
   "$root/MadeiraSupportTests/ExternalJITRoutingCheck.swift" -o "$check_binary"
 "$check_binary"

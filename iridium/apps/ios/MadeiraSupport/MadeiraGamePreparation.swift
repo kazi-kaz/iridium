@@ -38,6 +38,8 @@ enum MadeiraGamePreparation {
     private static let manifestName = ".iridium-source-manifest.json"
     private static let oldStamp = ".iridium-test-copy-complete"
     private static let journalName = ".iridium-game-update.json"
+    /// MadeiraGameConfig.fileName; kept local so this file builds on its own.
+    static let gameConfigName = "iridium.cfg"
 
     static func prefix(for gameID: UUID) -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -222,7 +224,10 @@ enum MadeiraGamePreparation {
                 throw CocoaError(.fileReadInvalidFileName)
             }
             let relative = String(canonicalItem.path.dropFirst(root.path.count + 1))
-            if relative == ".iridium" || relative == manifestName || relative == oldStamp {
+            // iridium.cfg configures the launch (MadeiraGameConfig), not the game:
+            // editing it must not count as a source change or reach the copy.
+            if relative == ".iridium" || relative == manifestName || relative == oldStamp
+                || relative == gameConfigName {
                 enumerator.skipDescendants()
                 continue
             }

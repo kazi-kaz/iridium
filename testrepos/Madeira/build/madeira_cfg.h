@@ -19,7 +19,13 @@
  * COMPATIBILITY: when madeira.cfg is ABSENT, the legacy Documents/madeira-<key>.txt
  * is consulted, so a device without the new file keeps behaving exactly as
  * before. When madeira.cfg is PRESENT the legacy files are ignored entirely,
- * which is what makes a single file the single source of truth. */
+ * which is what makes a single file the single source of truth.
+ *
+ * PER-GAME LAYER: when $MADEIRA_GAME_CFG names a readable file (Iridium sets it
+ * to the launched game's iridium.cfg before the server and Wine start), that
+ * file uses the same syntax and is read AFTER the global one, so any key it
+ * sets wins for that launch. Readers that cache their answer for the whole app
+ * run only see the game file of the first launch after Iridium starts. */
 #ifndef MADEIRA_CFG_H
 #define MADEIRA_CFG_H
 
@@ -103,63 +109,90 @@ static int madeira_cfg_present(void)
     return access(path, R_OK) == 0;
 }
 
+/* Scan one file's text (modified in place) for `key`. Returns 1 and the trimmed
+ * value in out when the key is set; the last occurrence wins. */
+static int madeira_cfg__scan(char *buf, const char *key, char *out, size_t cap)
+{
+    char *line = buf, *next;
+    int found = 0;
+    size_t klen = strlen(key);
+
+    /* A UTF-8 byte-order mark (added by some editors) is not part of the
+     * first key; Foundation drops it on the Swift side, so drop it here. */
+    if ((unsigned char)line[0] == 0xef && (unsigned char)line[1] == 0xbb && (unsigned char)line[2] == 0xbf) line += 3;
+    for (; line && *line; line = next)
+    {
+        char *eq;
+        next = strchr(line, '\n');
+        if (next) *next++ = '\0';
+        madeira_cfg__trim(line);
+        if (!*line || *line == '#') continue;
+        eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        madeira_cfg__trim(line);
+        if (strlen(line) != klen || strncmp(line, key, klen)) continue;
+        madeira_cfg__trim(eq + 1);
+        if (cap) { strncpy(out, eq + 1, cap - 1); out[cap - 1] = '\0'; }
+        found = 1;   /* keep going: the last occurrence wins */
+    }
+    return found;
+}
+
+/* The launched game's own configuration file, or NULL when none is set. */
+static const char *madeira_cfg_game_path(void)
+{
+    const char *p = getenv("MADEIRA_GAME_CFG");
+    return (p && *p) ? p : NULL;
+}
+
 /* Look `key` up. Returns 1 and the trimmed value in out (may be empty) when the
- * key is set; 0 when it is not (out is then ""). */
+ * key is set; 0 when it is not (out is then ""). The per-game file, when set,
+ * is consulted after the global one and wins. */
 static int madeira_cfg_get(const char *key, char *out, size_t cap)
 {
     char path[1024];
     char *buf;
+    const char *game;
     int found = 0;
     size_t klen = strlen(key);
 
     if (cap) out[0] = '\0';
-    if (!madeira_cfg__dir(path, sizeof path - 64)) return 0;
-
     buf = (char *)malloc(MADEIRA_CFG_MAX);
     if (!buf) return 0;
-    strcat(path, "/" MADEIRA_CFG_FILE);
-    if (madeira_cfg__read_file(path, buf, MADEIRA_CFG_MAX) >= 0)
+
+    if (madeira_cfg__dir(path, sizeof path - 64))
     {
-        char *line = buf, *next;
-        /* A UTF-8 byte-order mark (added by some editors) is not part of the
-         * first key; Foundation drops it on the Swift side, so drop it here. */
-        if ((unsigned char)line[0] == 0xef && (unsigned char)line[1] == 0xbb && (unsigned char)line[2] == 0xbf) line += 3;
-        for (; line && *line; line = next)
+        strcat(path, "/" MADEIRA_CFG_FILE);
+        if (madeira_cfg__read_file(path, buf, MADEIRA_CFG_MAX) >= 0)
+            found = madeira_cfg__scan(buf, key, out, cap);
+        else
         {
-            char *eq;
-            next = strchr(line, '\n');
-            if (next) *next++ = '\0';
-            madeira_cfg__trim(line);
-            if (!*line || *line == '#') continue;
-            eq = strchr(line, '=');
-            if (!eq) continue;
-            *eq = '\0';
-            madeira_cfg__trim(line);
-            if (strlen(line) != klen || strncmp(line, key, klen)) continue;
-            madeira_cfg__trim(eq + 1);
-            if (cap) { strncpy(out, eq + 1, cap - 1); out[cap - 1] = '\0'; }
-            found = 1;   /* keep going: the last occurrence wins */
+            /* No madeira.cfg: the legacy one-value-per-file layout. */
+            path[strlen(path) - strlen(MADEIRA_CFG_FILE)] = '\0';
+            if (strlen(path) + 9 + klen + 4 < sizeof path)
+            {
+                strcat(path, "madeira-"); strcat(path, key); strcat(path, ".txt");
+                if (madeira_cfg__read_file(path, buf, MADEIRA_CFG_MAX) >= 0)
+                {
+                    char *nl = strchr(buf, '\n');
+                    /* a legacy file is ONE value; multi-line ones (env, dxmt) have their
+                     * own readers and never come through here */
+                    if (nl) *nl = '\0';
+                    madeira_cfg__trim(buf);
+                    if (cap) { strncpy(out, buf, cap - 1); out[cap - 1] = '\0'; }
+                    found = 1;
+                }
+            }
         }
-        free(buf);
-        return found;
     }
 
-    /* No madeira.cfg: the legacy one-value-per-file layout. */
-    path[strlen(path) - strlen(MADEIRA_CFG_FILE)] = '\0';
-    if (strlen(path) + 9 + klen + 4 < sizeof path)
-    {
-        strcat(path, "madeira-"); strcat(path, key); strcat(path, ".txt");
-        if (madeira_cfg__read_file(path, buf, MADEIRA_CFG_MAX) >= 0)
-        {
-            char *nl = strchr(buf, '\n');
-            /* a legacy file is ONE value; multi-line ones (env, dxmt) have their
-             * own readers and never come through here */
-            if (nl) *nl = '\0';
-            madeira_cfg__trim(buf);
-            if (cap) { strncpy(out, buf, cap - 1); out[cap - 1] = '\0'; }
-            found = 1;
-        }
-    }
+    game = madeira_cfg_game_path();
+    /* __scan only writes `out` on a match, so the global value survives a
+     * game file that does not mention the key. */
+    if (game && madeira_cfg__read_file(game, buf, MADEIRA_CFG_MAX) >= 0
+        && madeira_cfg__scan(buf, key, out, cap))
+        found = 1;
     free(buf);
     return found;
 }
