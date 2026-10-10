@@ -352,6 +352,26 @@ def identical_files(first, second):
                 return True
 
 
+def materialize_windows_runtime_links(app):
+    """Replace in-bundle symlinks under the Windows runtime directories with copies."""
+    root = app.resolve(strict=True)
+    count = 0
+    for name in ("arm64ec-windows", "aarch64-windows", "i386-windows"):
+        directory = app / name
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        for path in sorted(directory.rglob("*")):
+            if not path.is_symlink():
+                continue
+            resolved = path.resolve(strict=True)
+            if root not in resolved.parents or not resolved.is_file():
+                raise ValueError("Windows runtime symlink does not resolve to a bundle file")
+            path.unlink()
+            shutil.copy2(resolved, path)
+            count += 1
+    return count
+
+
 def deduplicate_windows_runtime(app):
     """Replace identical PE resources in the disposable package copy with links.
 
@@ -544,7 +564,15 @@ def package(app, output):
         for path in native:
             if not unsigned_status(path):
                 raise ValueError("Native code still has a signature")
-        links = deduplicate_windows_runtime(staged)
+        # Sideloading tools on Windows (e.g. Impactor) can drop or break ZIP
+        # symlinks, which leaves arm64ec-windows/ntdll.dll missing at runtime
+        # (STATUS_DLL_NOT_FOUND while loading ntdll). Ship real files instead of
+        # links unless IRIDIUM_DEDUP_WINDOWS_RUNTIME=1 is set explicitly.
+        materialize_windows_runtime_links(staged)
+        if os.environ.get("IRIDIUM_DEDUP_WINDOWS_RUNTIME") == "1":
+            links = deduplicate_windows_runtime(staged)
+        else:
+            links = {}
         sign_entitlement_carrier(staged)
         # Inventory the final artifact bytes after signature changes. If these
         # manifests changed, reseal the bundle so CodeResources covers them.
