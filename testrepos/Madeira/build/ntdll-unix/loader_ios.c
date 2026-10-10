@@ -2596,18 +2596,32 @@ static void load_ntdll(void)
     else asprintf( &name, "%s%s/ntdll.dll", dll_dir, pe_dir );
 
     if (is_arm64ec()) machine = main_image_info.Machine;
+    dprintf( 2, "[Wine init] load_ntdll: open_builtin_pe_file %s machine=%x\n", name, machine );
     status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0, machine, FALSE, 0 );
+    dprintf( 2, "[Wine init] load_ntdll: open_builtin_pe_file status=%x module=%p\n", status, module );
     if (status == STATUS_DLL_NOT_FOUND)
     {
         free( name );
         asprintf( &name, "%s/ntdll.dll%c.so", ntdll_dir, 0 );
         status = open_builtin_so_file( name, &attr, &module, &info, machine, 0, FALSE );
     }
-    if (status == STATUS_IMAGE_NOT_AT_BASE) status = virtual_relocate_module( module );
+    if (status == STATUS_IMAGE_NOT_AT_BASE)
+    {
+        dprintf( 2, "[Wine init] load_ntdll: virtual_relocate_module...\n" );
+        status = virtual_relocate_module( module );
+        dprintf( 2, "[Wine init] load_ntdll: virtual_relocate_module status=%x\n", status );
+    }
     if (status) fatal_error( "failed to load %s error %x\n", name, status );
     free( name );
+    dprintf( 2, "[Wine init] load_ntdll: load_ntdll_functions...\n" );
     load_ntdll_functions( module );
-    if (is_arm64ec()) redirect_ntdll_functions( module );
+    dprintf( 2, "[Wine init] load_ntdll: load_ntdll_functions done\n" );
+    if (is_arm64ec())
+    {
+        dprintf( 2, "[Wine init] load_ntdll: redirect_ntdll_functions...\n" );
+        redirect_ntdll_functions( module );
+        dprintf( 2, "[Wine init] load_ntdll: redirect_ntdll_functions done\n" );
+    }
 }
 
 
