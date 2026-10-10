@@ -216,7 +216,7 @@ class WindowsRuntimeDedupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             packager.check_windows_runtime_archive(ipa, links)
 
-    def package_with_fixture_writer(self, preserve_links=True):
+    def package_with_fixture_writer(self, preserve_links=True, dedup=True):
         def run(command, **kwargs):
             self.assertEqual(command[0], "/usr/bin/ditto")
             if command[1:3] == ["-x", "-k"]:
@@ -238,7 +238,8 @@ class WindowsRuntimeDedupTests(unittest.TestCase):
              mock.patch.object(packager, "check_asset_catalog"), \
              mock.patch.object(packager, "sign_entitlement_carrier"), \
              mock.patch.object(packager, "audit_package_signatures", return_value={}), \
-             mock.patch.object(packager.subprocess, "run", side_effect=run):
+             mock.patch.object(packager.subprocess, "run", side_effect=run), \
+             mock.patch.dict(os.environ, {"IRIDIUM_DEDUP_WINDOWS_RUNTIME": "1" if dedup else "0"}):
             packager.package(self.app, self.root / "output")
 
     def test_package_changes_only_temporary_copy_and_publishes_after_audit(self):
@@ -255,6 +256,19 @@ class WindowsRuntimeDedupTests(unittest.TestCase):
         with zipfile.ZipFile(ipa) as archive:
             alias_info = archive.getinfo("Payload/Iridium.app/arm64ec-windows/shared.dll")
             self.assertTrue(stat.S_ISLNK(alias_info.external_attr >> 16))
+
+    def test_default_package_ships_real_files_instead_of_zip_symlinks(self):
+        # Windows sideloading tools can drop or break ZIP symlinks, which left
+        # arm64ec-windows/ntdll.dll missing on device, so links are opt-in.
+        self.minimal_app()
+        canonical, alias = self.pair()
+        self.package_with_fixture_writer(dedup=False)
+        ipa = self.root / "output/Iridium-unsigned.ipa"
+        with zipfile.ZipFile(ipa) as archive:
+            for name in ("arm64ec-windows/shared.dll", "aarch64-windows/shared.dll"):
+                info = archive.getinfo("Payload/Iridium.app/" + name)
+                self.assertFalse(stat.S_ISLNK(info.external_attr >> 16), name)
+                self.assertEqual(archive.read(info), self.pe)
 
     def test_failed_archive_audit_leaves_no_publishable_ipa_or_checksum(self):
         self.minimal_app()
