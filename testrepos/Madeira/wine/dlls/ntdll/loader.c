@@ -1380,6 +1380,43 @@ static BOOL arm64ec_iat_is_exported_x64( HMODULE module, const IMAGE_THUNK_DATA 
 }
 #endif
 
+#ifdef __arm64ec__
+/* iOS-Madeira: DATA exports of ARM64EC builtin DLLs, imported by x64 code.
+ *
+ * Builtin ARM64EC images run from a copy in the JIT pool, so the exporter's
+ * own code (e.g. msvcp140's DllMain building std::cout) initialises the POOL
+ * copy of its writable data.  An x64 importer runs under FEX and reads the
+ * address the loader puts in its IAT; that is base+rva in the ORIGINAL view,
+ * which the pool copy never writes back to, so it sees zeros (pseudoregalia
+ * dereferences cout's virtual-base pointer, reads 0, faults at address 4).
+ *
+ * For a writable, non-executable export of an ARM64EC module bound by an
+ * x64 importer, hand out the pool-copy address instead.  Functions are not
+ * touched (they keep the .hexpthk x64 thunk) and nothing changes when the
+ * module has no pool copy (translation is then the identity). */
+static void *ios_ec_data_export_for_x64( HMODULE exp_mod, void *proc, const char *dll, const char *sym, int ord )
+{
+    extern void *xlate_ios_jit( void *ptr );
+    static int logged;
+    IMAGE_NT_HEADERS *nt = RtlImageNtHeader( exp_mod );
+    IMAGE_SECTION_HEADER *sec;
+    void *pool;
+    ULONG_PTR rva;
+
+    if (!nt || (char *)proc < (char *)exp_mod ||
+        (char *)proc >= (char *)exp_mod + nt->OptionalHeader.SizeOfImage) return proc;
+    rva = (char *)proc - (char *)exp_mod;
+    sec = RtlImageRvaToSection( nt, exp_mod, rva );
+    if (!sec || (sec->Characteristics & IMAGE_SCN_MEM_EXECUTE) ||
+        !(sec->Characteristics & IMAGE_SCN_MEM_WRITE)) return proc;
+    pool = xlate_ios_jit( proc );
+    if (logged++ < 32)
+        ERR( "[ec-data-export] %s.%s (ord %d): x64 importer gets pool copy %p (orig view %p)\n",
+             dll, sym ? sym : "(by ordinal)", ord, pool, proc );
+    return pool;
+}
+#endif
+
 static BOOL import_dll( WINE_MODREF *wm, const IMAGE_IMPORT_DESCRIPTOR *descr, LPCWSTR load_path, WINE_MODREF **pwm )
 {
     HMODULE module = wm->ldr.DllBase;
@@ -1476,8 +1513,11 @@ static BOOL import_dll( WINE_MODREF *wm, const IMAGE_IMPORT_DESCRIPTOR *descr, L
      * corrupts the guest state, and crashes via dispatch_icall with
      * x11=garbage. */
     const IMAGE_ARM64EC_METADATA *imp_metadata = NULL;
+    BOOL x64_importer_of_ec = FALSE;
     if (arm64ec_get_module_metadata( module ))  /* importer is ARM64EC */
         imp_metadata = arm64ec_get_module_metadata( imp_mod );
+    else if (arm64ec_get_module_metadata( imp_mod ))  /* x64 importer, ARM64EC exporter */
+        x64_importer_of_ec = TRUE;
 #endif
 
     while (import_list->u1.Ordinal)
@@ -1503,6 +1543,9 @@ static BOOL import_dll( WINE_MODREF *wm, const IMAGE_IMPORT_DESCRIPTOR *descr, L
                 thunk_list->u1.Function = (ULONG_PTR)arm64ec_redirect_ptr( imp_mod,
                                                                            (void *)thunk_list->u1.Function,
                                                                            imp_metadata );
+            else if (x64_importer_of_ec)
+                thunk_list->u1.Function = (ULONG_PTR)ios_ec_data_export_for_x64( imp_mod,
+                                              (void *)thunk_list->u1.Function, name, NULL, ordinal );
 #endif
             TRACE_(imports)("--- Ordinal %s.%d = %p\n", name, ordinal, (void *)thunk_list->u1.Function );
         }
@@ -1590,6 +1633,10 @@ static BOOL import_dll( WINE_MODREF *wm, const IMAGE_IMPORT_DESCRIPTOR *descr, L
                                       : "POOL STALE  <== executing copy sees the OLD x64 thunk" );
                 }
             }
+            else if (x64_importer_of_ec)
+                thunk_list->u1.Function = (ULONG_PTR)ios_ec_data_export_for_x64( imp_mod,
+                                              (void *)thunk_list->u1.Function, name,
+                                              (const char *)pe_name->Name, 0 );
 #endif
             TRACE_(imports)("--- %s %s.%d = %p\n",
                             pe_name->Name, name, pe_name->Hint, (void *)thunk_list->u1.Function);
