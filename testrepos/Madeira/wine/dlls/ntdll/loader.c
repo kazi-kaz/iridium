@@ -1724,6 +1724,40 @@ static BOOL is_dll_native_subsystem( LDR_DATA_TABLE_ENTRY *mod, const IMAGE_NT_H
     return TRUE;
 }
 
+#ifdef __arm64ec__
+/* iOS-Madeira: publish a module's TLS slot to its JIT-pool copy too.
+ *
+ * Builtin ARM64EC images (xtajit64, d3d11, dxgi, ...) execute from a copy in
+ * the JIT pool that carries its own .data, so their compiler-emitted TLS
+ * sequence reads _tls_index from the POOL copy. The copy is taken when the
+ * image is first made executable, before the loader assigns the slot, and the
+ * store below only reaches the original view. The pool copy therefore kept
+ * _tls_index = 0, and every thread_local of those modules was resolved through
+ * TLS[0] -- the main executable's static TLS block.
+ *
+ * Kincaid (GameMaker, MSVC): FEX's thread_locals in xtajit64 zeroed the exe's
+ * _Init_thread_epoch (block 0 +8, template 0x80000000) on any thread that
+ * compiled guest code. With the epoch at 0, the guard of a never-built
+ * function-local static (0) no longer compares greater, so the exe used a
+ * zeroed std::unordered_map and faulted reading 0x8 in its audio decoder.
+ * Only the threads that JIT-compiled showed the clobbered epoch.
+ *
+ * Mirror the slot into the pool copy. The translation is the identity for a
+ * module without a pool copy, and the copy step maps writable sections RW. */
+static void ios_sync_tls_index_to_pool( DWORD *index, ULONG slot, const WCHAR *name )
+{
+    extern void *xlate_ios_jit( void *ptr );
+    DWORD *pool = xlate_ios_jit( index );
+    static int logged;
+
+    if (!pool || pool == index) return;
+    if (logged++ < 32)
+        ERR( "[tls-index] %s: slot %lu, pool copy %p held %lu (orig view %p) -> synced\n",
+             debugstr_w(name), slot, pool, (ULONG)*pool, index );
+    *pool = slot;
+}
+#endif
+
 /*************************************************************************
  *		alloc_tls_slot
  *
@@ -1812,6 +1846,9 @@ static BOOL alloc_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
     if (thread) NtClose( thread );
 
     *(DWORD *)dir->AddressOfIndex = i;
+#ifdef __arm64ec__
+    ios_sync_tls_index_to_pool( (DWORD *)dir->AddressOfIndex, i, mod->BaseDllName.Buffer );
+#endif
     tls_dirs[i] = *dir;
     {
         /* iOS-Madeira ml704 [tls-life]: which TLS slot each module actually got.
