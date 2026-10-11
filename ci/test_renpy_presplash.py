@@ -1,4 +1,4 @@
-"""Ren'Py's splash window does not ask for OpenGL.
+"""Ren'Py games start without the generic launch defaults or OpenGL splash.
 
 pygame_sdl2 adds SDL_WINDOW_OPENGL to every window unless the
 PYGAME_SDL2_AVOID_GL hint (read from the environment too) is set. Madeira has
@@ -7,6 +7,10 @@ no OpenGL driver, so Ren'Py's presplash window failed and the game quit with
 Ren'Py's own renderer passes pygame.OPENGL explicitly, so only windows that
 never needed OpenGL change. Wine copies the variable into the Windows
 environment (env_ios.c ignores only a fixed list of host variables).
+
+Ren'Py also rejects unknown command-line options, so Iridium's generic
+compatibility default "--windowed" ended the game ("unrecognized arguments:
+--windowed"). AppViewModel skips those defaults for a Ren'Py folder layout.
 """
 from pathlib import Path
 import re
@@ -15,6 +19,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "iridium/apps/ios/MadeiraSupport/MadeiraRuntimeAdapter.swift"
 ENV = ROOT / "testrepos/Madeira/build/ntdll-unix/env_ios.c"
+VIEW_MODEL = ROOT / "iridium/apps/ios/Iridium/AppViewModel.swift"
 
 
 class RenPyPresplashTests(unittest.TestCase):
@@ -32,6 +37,19 @@ class RenPyPresplashTests(unittest.TestCase):
         body = body[:body.index("\n}\n")]
         self.assertNotIn("PYGAME", body)
         self.assertIsNone(re.search(r'STARTS_WITH\( var, "P', body))
+
+    def test_renpy_games_get_no_generic_launch_defaults(self):
+        model = VIEW_MODEL.read_text()
+        body = model[model.index("private func gameApplyingCompatibilityLaunchDefaults("):]
+        body = body[:body.index("\n    }\n")]
+        guard = body.index("if Self.isRenPyGame(installPath: game.installPath)")
+        # Before both the Unity OpenGL arguments and the profile defaults.
+        self.assertLess(guard, body.index("metalOpenGLFallbackArguments("))
+        self.assertLess(guard, body.index("compatibility.launchArguments"))
+        self.assertEqual(body[guard:].split("\n")[1].strip(), "return game")
+        detector = model[model.index("static func isRenPyGame(installPath: String) -> Bool"):]
+        detector = detector[:detector.index("\n    }\n")]
+        self.assertIn('isDirectory("renpy") && isDirectory("game")', detector)
 
 
 if __name__ == "__main__":

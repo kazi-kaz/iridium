@@ -345,6 +345,12 @@ Ren'Py's renderer requests OpenGL explicitly and is unaffected;
 `env.PYGAME_SDL2_AVOID_GL = 0` in a config file restores the previous
 behavior. Checked by `ci/test_renpy_presplash.py`.
 
+`AppViewModel.swift` gives a Ren'Py game (a `renpy` and a `game` folder in its
+install folder) no generic compatibility launch arguments. Ren'Py rejects
+unknown options, and the default `--windowed` ended The Sea Wolves with
+`unrecognized arguments: --windowed` once its splash window worked. Arguments
+saved for the game are still passed. Checked by the same test.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

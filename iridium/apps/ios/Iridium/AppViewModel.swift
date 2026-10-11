@@ -2469,6 +2469,14 @@ final class AppViewModel: ObservableObject {
         _ game: GameRecord,
         resolvedPolicy: RuntimePolicy
     ) -> GameRecord {
+        // Ren'Py parses its command line strictly and quits on any option it does
+        // not know, so the generic defaults ("--windowed", Unity's flags) stop it
+        // ("The-Sea-Wolves.py: error: unrecognized arguments: --windowed").
+        // Arguments the user saved are still passed.
+        if Self.isRenPyGame(installPath: game.installPath) {
+            return game
+        }
+
         if game.rendererPreset == .metalOpenGLFallback
             || game.launchProfile.rendererPreset == .metalOpenGLFallback
             || resolvedPolicy.rendererOverride == .metalOpenGLFallback
@@ -2500,6 +2508,20 @@ final class AppViewModel: ObservableObject {
         var effectiveGame = game
         effectiveGame.launchProfile.arguments = defaultArguments
         return effectiveGame
+    }
+
+    /// A Ren'Py distribution keeps the engine in `renpy/` and the game in `game/`
+    /// next to its launcher executable.
+    static func isRenPyGame(installPath: String) -> Bool {
+        guard !installPath.isEmpty else { return false }
+        let root = URL(fileURLWithPath: installPath, isDirectory: true)
+        func isDirectory(_ name: String) -> Bool {
+            var directory: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(name).path, isDirectory: &directory)
+                && directory.boolValue
+        }
+        return isDirectory("renpy") && isDirectory("game")
     }
 
     private func launchArgumentsContainExplicitGraphicsAPI(_ arguments: [String]) -> Bool {
