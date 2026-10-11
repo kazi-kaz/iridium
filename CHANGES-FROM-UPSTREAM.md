@@ -289,10 +289,12 @@ waits for sign-in through Steam's `ActiveProcess` registry values, runs the
 game, then closes Steam. It is off by default, selects only executables with a
 SteamStub `.bind` section, and can be forced per game in `iridium.cfg`. The game
 and its DRM are not modified. No Steam binary is included.
-The helper also initialises GDI before starting any process: Madeira clones a
-new process's PEB from the session's first process, and win32u publishes the
-GDI handle table only into the PEB of the process that initialises it, so
-children of a GDI-free first process faulted on their first GDI handle.
+The helper also sets up GDI, its window station and its desktop before starting
+any process, and names that desktop for every program it starts. Madeira's
+single win32u runs its per-process setup only once per session, and later
+processes inherit it (the PEB is cloned from the first process; the desktop
+comes from the parent), so programs started by a GDI-free helper faulted on a
+NULL GDI handle table and then found no desktop.
 
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 

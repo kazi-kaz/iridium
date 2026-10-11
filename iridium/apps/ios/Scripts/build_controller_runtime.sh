@@ -16,4 +16,4 @@ done
 compiler="$root/../../../testrepos/Madeira/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"
 mkdir -p "$root/ControllerRuntime/aarch64"
 "$compiler" -O2 -municode -static-libgcc "$root/MadeiraSupport/prerequisites.c" \
-  -o "$root/ControllerRuntime/aarch64/iridium-prerequisites.exe" -ladvapi32 -lgdi32
+  -o "$root/ControllerRuntime/aarch64/iridium-prerequisites.exe" -ladvapi32 -lgdi32 -luser32

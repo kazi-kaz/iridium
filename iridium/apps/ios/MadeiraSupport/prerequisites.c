@@ -18,6 +18,9 @@
 #define CAP 32768
 static wchar_t executable[CAP], command[CAP], directory[CAP], key[CAP], name[CAP];
 static const wchar_t *config;
+/* "<window station>\\<desktop>" this helper made sure exists; given to every
+ * program it starts. Empty = let Wine pick. */
+static wchar_t session_desktop[256];
 static void status(const char *phase, UINT run, UINT runs, UINT process, UINT processes)
 {
     FILE *file = fopen("C:\\IridiumPrerequisites\\status.txt", "w");
@@ -93,6 +96,7 @@ static DWORD run_process(DWORD timeout, BOOL *exited)
     STARTUPINFOW startup = {0};
     PROCESS_INFORMATION process = {0};
     startup.cb = sizeof(startup);
+    startup.lpDesktop = session_desktop[0] ? session_desktop : NULL;
     if (exited) *exited = FALSE;
     if (cancelled()) return ERROR_CANCELLED;
     if (!CreateProcessW(executable, command, NULL, NULL, FALSE, 0, NULL,
@@ -171,6 +175,7 @@ static DWORD steam_create(PROCESS_INFORMATION *process)
     BOOL had[3];
     DWORD error = 0;
     startup.cb = sizeof(startup);
+    startup.lpDesktop = session_desktop[0] ? session_desktop : NULL;
     for (UINT i = 0; i < 3; i++) {
         DWORD size = GetEnvironmentVariableW(steam_identity[i], steam_saved[i], CAP);
         had[i] = size && size < CAP;
@@ -323,18 +328,37 @@ static void steam_stop(void)
     steam_process = NULL;
 }
 
-/* Madeira runs the whole session's Windows processes in one task with one
- * win32u. A new process starts with a copy of the FIRST process's PEB, and
- * win32u stores the GDI handle table address only in the PEB of the process
- * that initialises it. This helper is the first process, so it initialises GDI
- * before starting anything. Otherwise every child's gdi32 finds no table and
- * faults on its first GDI handle: steam.exe, then each winedbg started for it,
- * read 0x54e, 0x566, ... (2026-10-10, iPad). */
-static void gdi_session_init(void)
+/* Madeira runs every Windows process of the session in one task with ONE
+ * win32u, whose per-process setup (init_user: GDI table, window station,
+ * desktop) runs once, in whichever process first uses it. Every later process
+ * relies on inheritance instead: its PEB is a copy of the FIRST process's PEB
+ * (that is where gdi32 finds the GDI handle table), and its window station and
+ * desktop come from the process that started it. This helper is the first
+ * process and starts everything else, so it sets all of that up before
+ * starting anything, and passes its desktop to its programs explicitly.
+ * Without it (2026-10-10, iPad): first steam.exe and each winedbg started for
+ * it faulted on a NULL handle table (0x54e, 0x566, ...); then, with the table,
+ * steam.exe found no desktop ("top_window stays 0") and waited forever. */
+static void desktop_session_init(void)
 {
     HGDIOBJ font = GetStockObject(DEFAULT_GUI_FONT);
     void *table = *(void **)((BYTE *)NtCurrentTeb()->ProcessEnvironmentBlock + 0xf8);
-    fprintf(stderr, "[Prerequisites] GDI handle table %p (stock font %p)\n", table, (void *)font);
+    HWINSTA station = GetProcessWindowStation();
+    if (!station && (station = CreateWindowStationW(L"WinSta0", 0, WINSTA_ALL_ACCESS, NULL)))
+        SetProcessWindowStation(station);
+    HDESK desktop = GetThreadDesktop(GetCurrentThreadId());
+    if (!desktop && station && (desktop = CreateDesktopW(L"Default", NULL, NULL, 0, GENERIC_ALL, NULL)))
+        SetThreadDesktop(desktop);
+    DWORD error = GetLastError();
+    HWND top = GetDesktopWindow();
+    wchar_t station_name[96] = L"", desktop_name[96] = L"";
+    if (station) GetUserObjectInformationW(station, UOI_NAME, station_name, sizeof(station_name), NULL);
+    if (desktop) GetUserObjectInformationW(desktop, UOI_NAME, desktop_name, sizeof(desktop_name), NULL);
+    if (station_name[0] && desktop_name[0])
+        swprintf(session_desktop, sizeof(session_desktop) / sizeof(*session_desktop), L"%ls\\%ls",
+                 station_name, desktop_name);
+    fprintf(stderr, "[Prerequisites] GDI handle table %p (stock font %p); desktop \"%ls\" window %p (error %lu)\n",
+            table, (void *)font, session_desktop, (void *)top, error);
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -345,7 +369,7 @@ int wmain(int argc, wchar_t **argv)
     UINT runs = GetPrivateProfileIntW(L"plan", L"runs", 0, config);
     UINT use_steam = GetPrivateProfileIntW(L"plan", L"steam", 0, config);
     if (runs > 64 || use_steam > 1 || (!runs && !use_steam)) return ERROR_INVALID_DATA;
-    gdi_session_init();
+    desktop_session_init();
     status("services", 0, 0, 0, 0);
     DWORD code = services_start();
     fprintf(stderr, "[Prerequisites] Wine services: %lu\n", code);

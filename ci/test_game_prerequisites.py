@@ -115,7 +115,7 @@ static DWORD codes[4], service_error, registry_error;
 static int calls, marked, game, cancelled_flag, bad_field, unconfirmed, cancel_after_process;
 static BOOL cancelled(void) { return cancelled_flag; }
 static int gdi_ready;
-static void gdi_session_init(void) { gdi_ready = 1; }
+static void desktop_session_init(void) { gdi_ready = 1; }
 static DWORD services_start(void) { assert(gdi_ready); return service_error; }
 static UINT plan_runs = 2, plan_steam;
 static UINT GetPrivateProfileIntW(const wchar_t *s, const wchar_t *k, UINT d, const wchar_t *p) {
@@ -213,7 +213,7 @@ typedef unsigned long DWORD;
 typedef unsigned long long ULONGLONG;
 typedef int BOOL;
 typedef int HANDLE;
-typedef struct { DWORD cb; } STARTUPINFOW;
+typedef struct { DWORD cb; wchar_t *lpDesktop; } STARTUPINFOW;
 typedef struct { HANDLE hThread, hProcess; } PROCESS_INFORMATION;
 #define FALSE 0
 #define TRUE 1
@@ -225,7 +225,7 @@ typedef struct { HANDLE hThread, hProcess; } PROCESS_INFORMATION;
 #define ERROR_PROCESS_ABORTED 1067
 #define ERROR_TIMEOUT 1460
 #define ERROR_ACCESS_DENIED 5
-static wchar_t executable[128], command[128], directory[128];
+static wchar_t executable[128], command[128], directory[128], session_desktop[16];
 static int cancelled_flag, created, terminated, mode;
 static ULONGLONG tick;
 static BOOL cancelled(void) { return cancelled_flag; }
