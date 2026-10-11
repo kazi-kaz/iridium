@@ -115,6 +115,18 @@
         "testrepos/Madeira/build/dxmt-ios/build.sh"
       ],
       "adaptation": "Fixed Metal 3.1 language pin and script-change cache invalidation; preserve native iphoneos SDK and ios18 AIR target; omit upstream macOS target, binary and include-layout changes. Auxiliary native AIR preparation is unchanged."
+    },
+    {
+      "upstream": "https://github.com/willfaust/Madeira",
+      "pull_request": 144,
+      "commits": [
+        "9d13d867a7bceb707a1dcdb46808cb2df43ac50b"
+      ],
+      "paths": [
+        "testrepos/Madeira/build/ntdll-unix/process_ios.c",
+        "testrepos/Madeira/build/host-tests/check-ec-conhost.py"
+      ],
+      "adaptation": "process_ios.c change unchanged. Host test moved from tests/host to build/host-tests (same Madeira root) and run by source checks; ConfigCatalog.generated.swift is not part of Iridium."
     }
   ]
 }

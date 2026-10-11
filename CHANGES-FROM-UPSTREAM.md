@@ -296,6 +296,17 @@ processes inherit it (the PEB is cloned from the first process; the desktop
 comes from the parent), so programs started by a GDI-free helper faulted on a
 NULL GDI handle table and then found no desktop.
 
+## Madeira #144: no conhost.exe in ARM64EC sessions
+
+`process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`
+(#144, bahacan16) unchanged: an ARM64EC session refuses to start Wine's
+aarch64 `conhost.exe`, whose threads get no CPU area for the emulator the
+session's ntdll loads into it. Its first fault repeated until the app was
+terminated (The Sea Wolves running `cmd /c ver`, 2026-10-11). Console
+allocation fails instead; `env.MADEIRA_EC_CONHOST=1` restores the old
+behavior. The upstream host test runs as `build/host-tests/check-ec-conhost.py`.
+GPL-3.0-or-later and the Madeira Converter Exception apply.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit
