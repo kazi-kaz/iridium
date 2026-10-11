@@ -277,6 +277,19 @@ exception. Shared redistributables are copied only when available. GDI shared
 sections, the session sync setting, and missing-only `fusion.dll` placement
 follow Madeira's installer path. Existing game files and saves are preserved.
 
+### Steam client mode (experimental)
+
+`MadeiraSteamClient.swift` takes its `steam.exe` options from Madeira's
+`ContentView.swift` `prepareSteamLaunch` at
+`40d5e74848e4ee7060e879c07ef74487d9dc8cec` and keeps 125hz's copyright,
+GPL-3.0-or-later and the Madeira Converter Exception. Instead of Madeira's batch
+file and Explorer desktop, `prerequisites.c` gains an optional stage that starts
+the player's own Steam (linked from Files › SteamClient) after Wine services,
+waits for sign-in through Steam's `ActiveProcess` registry values, runs the
+game, then closes Steam. It is off by default, selects only executables with a
+SteamStub `.bind` section, and can be forced per game in `iridium.cfg`. The game
+and its DRM are not modified. No Steam binary is included.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

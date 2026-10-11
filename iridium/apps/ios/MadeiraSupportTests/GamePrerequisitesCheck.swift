@@ -209,6 +209,104 @@ import Foundation
         let keptSave = try Data(contentsOf: profileSave)
         let keptSource = try Data(contentsOf: installer)
         precondition(keptSave == Data("unchanged save".utf8) && keptSource == pe)
-        print("PASS: scripts, registry, shared redist, manual EXE/MSI selection and retry, prefix creation, relaunch, argv, fusion, cancellation and save preservation")
+        try steamClientChecks(root: root, resources: resources)
+        print("PASS: scripts, registry, shared redist, manual EXE/MSI selection and retry, prefix creation, relaunch, argv, fusion, cancellation, save preservation and Steam client mode")
+    }
+
+    static func steamClientChecks(root: URL, resources: Bundle) throws {
+        let fm = FileManager.default
+        func pe(_ sections: [String]) -> Data {
+            var bytes = [UInt8](repeating: 0, count: 64)
+            bytes[0] = 0x4d; bytes[1] = 0x5a; bytes[60] = 64
+            bytes += [0x50, 0x45, 0, 0, 0x64, 0x86, UInt8(sections.count), 0]
+            bytes += [UInt8](repeating: 0, count: 12) + [16, 0, 0, 0] + [UInt8](repeating: 0, count: 16)
+            for name in sections {
+                let entry = Array(name.utf8.prefix(8))
+                bytes += entry + [UInt8](repeating: 0, count: 40 - entry.count)
+            }
+            return Data(bytes)
+        }
+        let steamRoot = root.appendingPathComponent("steam-client")
+        try fm.createDirectory(at: steamRoot, withIntermediateDirectories: true)
+        let drm = steamRoot.appendingPathComponent("Protected.exe")
+        let plain = steamRoot.appendingPathComponent("Plain.exe")
+        try pe([".text", ".rdata", ".bind"]).write(to: drm)
+        try pe([".text", ".rdata"]).write(to: plain)
+        precondition(MadeiraSteamClient.sectionNames(drm) == [".text", ".rdata", ".bind"])
+        precondition(MadeiraSteamClient.hasSteamDRM(drm) && !MadeiraSteamClient.hasSteamDRM(plain))
+        precondition(MadeiraSteamClient.machine(drm) == 0x8664)
+        let truncated = steamRoot.appendingPathComponent("Truncated.exe")
+        try pe([".bind"]).prefix(100).write(to: truncated)
+        precondition(!MadeiraSteamClient.hasSteamDRM(truncated))
+        precondition(MadeiraSteamClient.sectionNames(steamRoot.appendingPathComponent("missing.exe")).isEmpty)
+
+        // The game's iridium.cfg wins; the Settings switch only selects DRM-wrapped games.
+        let config = steamRoot.appendingPathComponent("iridium.cfg")
+        func request(_ text: String?, _ exe: URL, _ enabled: Bool) throws -> Bool {
+            if let text { try Data(text.utf8).write(to: config) }
+            if case .on = MadeiraSteamClient.request(gameConfig: text == nil ? nil : config, executable: exe, enabled: enabled) { return true }
+            return false
+        }
+        let decisions = [try request(nil, drm, false), try request(nil, drm, true), try request(nil, plain, true),
+                         try request("steam-client = on\n", plain, false),
+                         try request("# off for this game\nsteam-client = off\n", drm, true),
+                         try request("steam-client = maybe\n", drm, true)]
+        precondition(decisions == [false, true, false, true, false, true])
+
+        // Steam comes from Files > Iridium > SteamClient through a link in the game environment.
+        let documents = steamRoot.appendingPathComponent("Documents")
+        let prefix = steamRoot.appendingPathComponent("prefix")
+        try fm.createDirectory(at: prefix.appendingPathComponent("drive_c/IridiumGame"), withIntermediateDirectories: true)
+        do { _ = try MadeiraSteamClient.prepare(prefix: prefix, gameConfig: nil, documents: documents); preconditionFailure("Missing Steam accepted") }
+        catch { precondition(error.localizedDescription.contains("SteamClient")) }
+        precondition(fm.fileExists(atPath: documents.appendingPathComponent("SteamClient").path))
+        let client = documents.appendingPathComponent("SteamClient/Steam")
+        try fm.createDirectory(at: client, withIntermediateDirectories: true)
+        try pe([".text"]).write(to: client.appendingPathComponent("Steam.exe"))
+        precondition(MadeiraSteamClient.locate(documents: documents)?.standardizedFileURL == client.standardizedFileURL)
+        try Data("steam-client-args = -silent\n".utf8).write(to: config)
+        let launch = try MadeiraSteamClient.prepare(prefix: prefix, gameConfig: config, documents: documents)
+        let installed = prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam")
+        let linked = try fm.destinationOfSymbolicLink(atPath: installed.path)
+        precondition(linked == client.path)
+        precondition(launch.executable == "C:\\Program Files (x86)\\Steam\\Steam.exe")
+        precondition(launch.directory == "C:\\Program Files (x86)\\Steam")
+        precondition(launch.command.hasPrefix("\"C:\\Program Files (x86)\\Steam\\Steam.exe\" -no-cef-sandbox -cef-disable-gpu"))
+        precondition(launch.command.hasSuffix(" -silent"))
+        let again = try MadeiraSteamClient.prepare(prefix: prefix, gameConfig: nil, documents: documents)
+        let relinked = try fm.destinationOfSymbolicLink(atPath: installed.path)
+        precondition(relinked == client.path && !again.command.hasSuffix(" -silent"))
+
+        // A Steam installed inside the game environment is used as it is.
+        let ownPrefix = steamRoot.appendingPathComponent("own-prefix")
+        let own = ownPrefix.appendingPathComponent("drive_c/Program Files (x86)/Steam")
+        try fm.createDirectory(at: own, withIntermediateDirectories: true)
+        do { _ = try MadeiraSteamClient.prepare(prefix: ownPrefix, gameConfig: nil, documents: documents); preconditionFailure("Empty Steam folder accepted") }
+        catch { }
+        try pe([".text"]).write(to: own.appendingPathComponent("steam.exe"))
+        let ownLaunch = try MadeiraSteamClient.prepare(prefix: ownPrefix, gameConfig: nil, documents: documents)
+        precondition(ownLaunch.executable.hasSuffix("\\steam.exe"))
+        precondition((try? fm.destinationOfSymbolicLink(atPath: own.path)) == nil)
+
+        // The helper plan gains a [steam] stage, with or without installers.
+        let text = try IridiumGamePrerequisites.configuration([], executable: "C:\\IridiumGame\\Game.exe", arguments: [], steam: launch)
+        precondition(text.contains("runs=0\r\nsteam=1\r\n") && text.contains("[steam]\r\n"))
+        precondition(text.contains("command=x" + launch.command + "x\r\n"))
+        let ordinary = try IridiumGamePrerequisites.configuration([], executable: "C:\\IridiumGame\\Game.exe", arguments: [])
+        precondition(ordinary.contains("steam=0\r\n") && !ordinary.contains("[steam]"))
+        for name in ["system.reg", "user.reg"] { try Data("WINE REGISTRY Version 2\n".utf8).write(to: prefix.appendingPathComponent(name)) }
+        let withoutSteam = try IridiumGamePrerequisites.prepare(prefix: prefix, executable: "C:\\IridiumGame\\Game.exe",
+            arguments: [], appID: nil, resources: resources)
+        precondition(withoutSteam == nil)
+        let steamOnly = try IridiumGamePrerequisites.prepare(prefix: prefix, executable: "C:\\IridiumGame\\Game.exe",
+            arguments: [], appID: nil, steam: launch, resources: resources)!
+        precondition(steamOnly.steamClient && steamOnly.installerCount == 0)
+        let plan = try String(contentsOf: prefix.appendingPathComponent("drive_c/IridiumPrerequisites/installers.ini"), encoding: .utf16)
+        precondition(plan.contains("steam=1") && plan.contains("-no-cef-sandbox"))
+        let statusFile = prefix.appendingPathComponent("drive_c/IridiumPrerequisites/status.txt")
+        for state in ["steam", "steam-login", "steam-exit"] {
+            try Data(state.utf8).write(to: statusFile)
+            precondition(IridiumGamePrerequisites.status(prefix: prefix)?.contains("Steam") == true)
+        }
     }
 }

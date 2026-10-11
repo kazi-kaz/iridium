@@ -80,7 +80,8 @@ int main(int argc, char **argv) {
                 "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
                 *[str(support / name) for name in (
                     "MadeiraGamePreparation.swift", "MadeiraLaunchArguments.swift",
-                    "IridiumSteamInstallScript.swift", "IridiumGamePrerequisites.swift")],
+                    "IridiumSteamInstallScript.swift", "IridiumGamePrerequisites.swift",
+                    "MadeiraGameConfig.swift", "MadeiraSteamClient.swift")],
                 str(IOS / "MadeiraSupportTests/GamePrerequisitesCheck.swift"), "-o", str(binary),
             ], check=True, capture_output=True, timeout=90)
             subprocess.run([str(binary)], check=True, capture_output=True, timeout=15)
@@ -114,16 +115,23 @@ static DWORD codes[4], service_error, registry_error;
 static int calls, marked, game, cancelled_flag, bad_field, unconfirmed, cancel_after_process;
 static BOOL cancelled(void) { return cancelled_flag; }
 static DWORD services_start(void) { return service_error; }
+static UINT plan_runs = 2, plan_steam;
 static UINT GetPrivateProfileIntW(const wchar_t *s, const wchar_t *k, UINT d, const wchar_t *p) {
     (void)s; (void)d; (void)p;
-    return !wcscmp(k,L"runs") || !wcscmp(k,L"processes") ? 2 : 0;
+    if (!wcscmp(k,L"runs")) return plan_runs;
+    if (!wcscmp(k,L"steam")) return plan_steam;
+    return !wcscmp(k,L"processes") ? 2 : 0;
 }
 static BOOL field(const wchar_t *s, const wchar_t *k, wchar_t *v) {
     (void)s; (void)k; (void)v; return !bad_field;
 }
 static DWORD record_run(const wchar_t *s) { (void)s; if (!registry_error) marked++; return registry_error; }
+static DWORD steam_error;
+static int steam_started, steam_stopped, installers_before_steam;
+static DWORD steam_start(void) { steam_started++; installers_before_steam = calls; return steam_error; }
+static void steam_stop(void) { steam_stopped++; }
 static DWORD run_process(DWORD timeout, BOOL *exited) {
-    if (timeout == INFINITE) { game++; return 0; }
+    if (timeout == INFINITE) { assert(steam_stopped == 0); game++; return 0; }
     *exited = !unconfirmed;
     assert(timeout == 600000); assert(calls < 4);
     DWORD code = codes[calls++];
@@ -135,6 +143,7 @@ static void reset(void) {
     memset(codes,0,sizeof(codes)); calls=marked=game=cancelled_flag=bad_field=unconfirmed=0;
     cancel_after_process=0;
     service_error=registry_error=0;
+    plan_runs=2; plan_steam=0; steam_error=0; steam_started=steam_stopped=installers_before_steam=0;
 }
 int main(void) {
     wchar_t *argv[]={L"helper",L"plan"};
@@ -160,6 +169,27 @@ int main(void) {
     }
     for (DWORD code=0; code<65536; code++)
         assert(installed(code)==(code==0 || code==3010 || code==1641));
+    /* Steam client stage: after every installer, before the game, closed after it. */
+    reset(); assert(wmain(2,argv)==0 && !steam_started && game==1);
+    reset(); plan_steam=1;
+    assert(wmain(2,argv)==0 && calls==4 && marked==2 && steam_started==1 && installers_before_steam==4
+           && game==1 && steam_stopped==1);
+    reset(); plan_steam=1; plan_runs=0;
+    assert(wmain(2,argv)==0 && !calls && steam_started==1 && game==1 && steam_stopped==1);
+    reset(); plan_steam=1; plan_runs=0; steam_error=1460;
+    assert(wmain(2,argv)==1460 && !game && steam_stopped==1);
+    reset(); plan_steam=1; plan_runs=0; bad_field=1;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && steam_started==1 && !game && steam_stopped==1);
+    reset(); plan_steam=1; cancel_after_process=4;
+    assert(wmain(2,argv)==ERROR_CANCELLED && !steam_started && !game);
+    reset(); plan_steam=1; service_error=1722;
+    assert(wmain(2,argv)==1722 && !steam_started && !game);
+    reset(); plan_steam=2;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !calls && !steam_started);
+    reset(); plan_runs=0;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !steam_started && !game);
+    reset(); plan_runs=65; plan_steam=1;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !steam_started);
 }
 '''
         with tempfile.TemporaryDirectory() as temp:

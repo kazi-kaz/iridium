@@ -119,7 +119,9 @@ not all WinNative Steam services. Full parity is **not** established. Known gaps
   automatic old-version cleanup, and automatic game-local save migration.
 - Steam Cloud, friends/chat, achievements, overlays, multiplayer tickets and
   launch-time Steamworks/DRM IPC. A download session is not a desktop Steam client
-  and does not replace these game requirements.
+  and does not replace these game requirements. The separate, experimental Steam
+  client mode (iridium/docs/setup.md) runs the player's own Windows Steam client
+  for launch-time DRM; downloads still never use Steam.exe.
 - Unlimited background transfers are not promised. Downloads use the app's managed
   storage and pause when iOS backgrounds it.
 

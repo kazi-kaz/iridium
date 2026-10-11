@@ -36,9 +36,10 @@ enum TouchControllerLayoutStore { static func isEnabled(for id: UUID) -> Bool { 
 enum IridiumGamePrerequisites {
     static func installFonts(prefix: URL) throws {}
     static func status(prefix: URL) -> String? { "Installing fixture prerequisites" }
-    struct Launch { let executable: String; let arguments: [String]; let installerCount: Int }
+    struct Launch { let executable: String; let arguments: [String]; let installerCount: Int; var steamClient = false }
     static func sharedRoots(gameRoot: URL, nativeSteamInstall: Bool) -> [URL] { [] }
-    static func prepare(prefix: URL, executable: String, arguments: [String], appID: Int?, sharedRoots: [URL]) throws -> Launch? {
+    static func prepare(prefix: URL, executable: String, arguments: [String], appID: Int?, sharedRoots: [URL],
+                        steam: MadeiraSteamClient.Launch? = nil) throws -> Launch? {
         if scenario == "prerequisite-failure" { throw CocoaError(.fileReadCorruptFile) }
         return ["prerequisite-success", "prerequisite-cancel", "prerequisite-close-timeout", "prerequisite-nonzero-exit", "prerequisite-nonzero-close-timeout"].contains(scenario) ? Launch(executable: "C:\\helper.exe", arguments: ["C:\\plan.ini"], installerCount: 1) : nil
     }

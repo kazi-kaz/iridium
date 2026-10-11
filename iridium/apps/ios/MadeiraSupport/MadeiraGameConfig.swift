@@ -8,7 +8,8 @@ import Foundation
 /// The file uses madeira.cfg syntax; every key it sets, including `env.` lines,
 /// wins over madeira.cfg for that game only. Iridium itself reads
 /// `jit-pool-mb` (128, 256 or 512), which replaces the JIT Memory Limit setting
-/// for this game. The native readers find the file through MADEIRA_GAME_CFG
+/// for this game, and `steam-client` / `steam-client-args` (MadeiraSteamClient).
+/// The native readers find the file through MADEIRA_GAME_CFG
 /// (build/madeira_cfg.h). Game preparation leaves iridium.cfg out of the
 /// isolated game copy, so editing it never triggers a copy update.
 enum MadeiraGameConfig {

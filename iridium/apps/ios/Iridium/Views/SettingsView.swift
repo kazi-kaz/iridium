@@ -473,6 +473,7 @@ private struct RuntimeLaunchPreferences: View {
     @AppStorage(MadeiraResolution.key) private var width = 960
     @AppStorage("IridiumJITPoolMB") private var pool = 0
     @AppStorage("IridiumVerboseTrace") private var verboseTrace = false
+    @AppStorage(MadeiraSteamClient.preferenceKey) private var steamClient = false
     var body: some View {
         List {
             Section("Display Resolution") {
@@ -512,6 +513,26 @@ private struct RuntimeLaunchPreferences: View {
                     }
                 }
                 Text("Logs file opens, system calls and module loads for the next launch. For diagnosing crashes only: it makes games much slower and logs very large.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Steam Client (Experimental)") {
+                ForEach([false, true], id: \.self) { enabled in
+                    MenuButton {
+                        steamClient = enabled
+                        if enabled { MadeiraSteamClient.ensureFolder() }
+                    } label: {
+                        HStack {
+                            Text(enabled ? "On for Steam DRM Games" : "Off")
+                            Spacer()
+                            if steamClient == enabled { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+                Text(MadeiraSteamClient.locate() == nil
+                     ? "No Steam client found. Copy the Steam folder from a Windows PC into Files › Iridium › SteamClient."
+                     : "Steam client found in Files › Iridium › SteamClient.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Text("Starts your own Steam before a game protected by Steam DRM, waits for you to sign in, then starts the game. Other games launch as before. steam-client = on or off in a game's iridium.cfg overrides this for that game.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

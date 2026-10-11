@@ -23,6 +23,8 @@ enum MadeiraRuntimeAdapter {
     private static var closeTask: Task<Void, Never>?
     private static var prerequisitePrefix: URL?
     private(set) static var desktopSession = false
+    private static var steamClientSession = false
+    private static let steamClientMessage = "Starting Steam. Sign in when its window appears; the game starts after sign-in."
 
     // This runs on the boot worker. The registry loader changes the process
     // directory, so Wine must not start until readiness is published. Allow
@@ -153,17 +155,42 @@ enum MadeiraRuntimeAdapter {
                             windowsExecutable: path, registeredAppID: steamAppID)
                         try MadeiraControllerInstall.install(prefix: prefix, windowsExecutable: path)
                         let mediaProbe = UserDefaults.standard.string(forKey: "IridiumMadeiraTest") == "media"
+                        // Experimental Steam client mode (Settings or the game's iridium.cfg).
+                        var steamClient: MadeiraSteamClient.Launch?
+                        if !mediaProbe {
+                            switch MadeiraSteamClient.request(gameConfig: gameConfig,
+                                                              executable: URL(fileURLWithPath: executable),
+                                                              enabled: MadeiraSteamClient.isEnabled) {
+                            case .on(let reason):
+                                let launch: MadeiraSteamClient.Launch
+                                do { launch = try MadeiraSteamClient.prepare(prefix: prefix, gameConfig: gameConfig) }
+                                catch {
+                                    failure(error.localizedDescription)
+                                    return
+                                }
+                                steamClient = launch
+                                RuntimeLogCapture.writeLine("[Launch] Steam client on (\(reason)): \(launch.command)")
+                                RuntimeLogCapture.writeLine("[Launch] Steam client executable: \(MadeiraSteamClient.machineName(launch.file)).")
+                                if getenv("SteamAppId") == nil {
+                                    RuntimeLogCapture.writeLine("[Launch] Steam client: this game has no known Steam app ID. If Steam DRM asks Steam to start the game itself, put steam_appid.txt with the app ID in the game folder.")
+                                }
+                            case .off(let reason):
+                                RuntimeLogCapture.writeLine("[Launch] Steam client off: \(reason).")
+                            }
+                        }
                         let prerequisites = try mediaProbe ? nil : IridiumGamePrerequisites.prepare(
                             prefix: prefix, executable: path, arguments: arguments,
                             appID: steamAppID.flatMap(Int.init),
                             sharedRoots: IridiumGamePrerequisites.sharedRoots(
-                                gameRoot: URL(fileURLWithPath: gameRoot), nativeSteamInstall: nativeSteamInstall))
+                                gameRoot: URL(fileURLWithPath: gameRoot), nativeSteamInstall: nativeSteamInstall),
+                            steam: steamClient)
                         guard current() else { return }
                         RuntimeLogCapture.writeLine("[Launch] Game files and controller bridge are ready.")
                         DispatchQueue.main.sync {
                             guard launchID == token, !launchCancelled, !failureReported else { return }
                             prerequisitePrefix = prerequisites == nil ? nil : prefix
                             desktopSession = prerequisites != nil
+                            steamClientSession = prerequisites?.steamClient == true
                             MadeiraController.start(
                                 prefix: prefix,
                                 touchControlsEnabled: TouchControllerLayoutStore.isEnabled(for: gameID),
@@ -179,10 +206,16 @@ enum MadeiraRuntimeAdapter {
                             setenv("MADEIRA_MADSYNC_SESSION", "0", 1)
                             setenv("MADEIRA_EXE", prerequisites.executable, 1)
                             setenv("IRIDIUM_MADEIRA_ARGS_JSON", try MadeiraLaunchArguments.encode(prerequisites.arguments), 1)
-                            RuntimeLogCapture.writeLine("[Launch] Running \(prerequisites.installerCount) prerequisite installers before the game.")
+                            if prerequisites.installerCount > 0 {
+                                RuntimeLogCapture.writeLine("[Launch] Running \(prerequisites.installerCount) prerequisite installers before the game.")
+                            }
+                            if prerequisites.steamClient {
+                                RuntimeLogCapture.writeLine("[Launch] Starting Steam before the game. The game starts after Steam sign-in.")
+                            }
                             DispatchQueue.main.async {
                                 guard launchID == token, !launchCancelled else { return }
-                                report("Installing game prerequisites. The game will start next.")
+                                report(prerequisites.steamClient && prerequisites.installerCount == 0 ? steamClientMessage
+                                       : "Installing game prerequisites. The game will start next.")
                             }
                         } else { setenv("MADEIRA_EXE", path, 1) }
                         if mediaProbe {
@@ -270,6 +303,7 @@ enum MadeiraRuntimeAdapter {
                     if launchCancelled { requestGuestClose() }
                     else if !failureReported {
                         report(prerequisitePrefix == nil ? "Madeira started; waiting for rendered frames."
+                               : steamClientSession ? steamClientMessage
                                : "Installing game prerequisites. The game will start next.")
                     }
                     monitorTask?.cancel()

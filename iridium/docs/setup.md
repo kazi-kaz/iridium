@@ -113,6 +113,46 @@ file, are appended to the controller bridge's XInput overrides instead of
 replacing them; an empty value clears them. The file is not copied into the
 isolated game copy.
 
+### Steam client mode (experimental)
+
+Games wrapped in Steam DRM (SteamStub) start only while a signed-in Steam
+client runs; without one they exit at once (MX Bikes exits with code 53).
+Iridium can start your own Windows Steam client before such a game. The game is
+not modified: its DRM checks your signed-in Steam as it would on Windows, so the
+account must own the game. Madeira runs Steam slowly and not every start
+succeeds; this mode has not yet been confirmed on a device.
+
+1. On a Windows PC, copy the Steam folder (normally
+   `C:\Program Files (x86)\Steam`). `steamapps\common`, `steamapps\downloading`
+   and `steamapps\shadercache` can be left out.
+2. In Files, put its contents in **Iridium → SteamClient**, so that
+   `SteamClient/steam.exe` exists. `SteamClient/Steam/steam.exe` also works.
+   Iridium links this folder into each game environment as
+   `C:\Program Files (x86)\Steam`; one copy serves every game.
+3. In **Settings → Runtime → Display & Memory → Steam Client**, choose
+   **On for Steam DRM Games**. Iridium then starts Steam only for games whose
+   executable has a SteamStub `.bind` section; other games launch as before.
+4. Play the game. Steam opens in a desktop session; sign in, including Steam
+   Guard. About five seconds after sign-in the game starts. When the game exits,
+   Iridium asks Steam to exit and ends any Steam process left after 20 seconds.
+   Close ends Steam at once.
+
+`steam-client = on` in a game's `iridium.cfg` uses Steam for that game whatever
+the setting and DRM check say; `steam-client = off` never does.
+`steam-client-args` appends Steam command-line options to Madeira's defaults
+(`-no-cef-sandbox -cef-disable-gpu -console -nocrashmonitor` and the CEF feature
+list). A Steam installed in a game environment at that path, for example with
+the game's **Run Installer** option, is used as it is instead of the link.
+
+Steam, its web helper and the game share memory: use the 8 GB iPad, set
+`jit-pool-mb = 512` for the game, and prefer 1280 × 720 so Steam's windows fit.
+Use the 64-bit Windows client; the launch log states steam.exe's architecture.
+If the log says the game has no known Steam app ID, add `steam_appid.txt`
+containing it to the game folder. Look for `[Launch] Steam client` and
+`[Prerequisites]` lines in the log. The helper's Steam stage is tested under
+desktop Wine with stand-in programs (`ci/test_steam_client_helper.py`); that
+does not show that Steam or a DRM-protected game runs on iOS.
+
 In **Launch Support → External JIT App**, select the route. Automatic tries
 LiveContainer2, StikDebug, LiveContainer, then a LiveContainer3 fallback. Pending
 JIT requests are bounded; close the player to cancel, and restart if requested.
