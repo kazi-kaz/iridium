@@ -335,6 +335,16 @@ i386, 2026-10-11). `build/ntdll-unix/process_ios.c` names such `0xFExxxxxx`
 exit codes in the log. Checked by `build/host-tests/check-entry-pool.py`.
 No FEX source changes.
 
+## Ren'Py splash window without OpenGL
+
+`MadeiraRuntimeAdapter.swift` sets `PYGAME_SDL2_AVOID_GL=1` for every launch.
+pygame_sdl2 otherwise requests OpenGL for every window; Madeira has no OpenGL
+driver, so Ren'Py's presplash window could not be created and the game quit
+with `pygame_sdl2.error.error: Invalid window` (The Sea Wolves, 2026-10-11).
+Ren'Py's renderer requests OpenGL explicitly and is unaffected;
+`env.PYGAME_SDL2_AVOID_GL = 0` in a config file restores the previous
+behavior. Checked by `ci/test_renpy_presplash.py`.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

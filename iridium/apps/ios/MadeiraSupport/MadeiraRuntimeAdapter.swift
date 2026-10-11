@@ -198,6 +198,13 @@ enum MadeiraRuntimeAdapter {
                             )
                         }
                         setenv("WINEDLLOVERRIDES", "xinput1_1,xinput1_2,xinput1_3,xinput1_4,xinput9_1_0=n,b;windows.gaming.input=", 1)
+                        // Ren'Py's splash window asks SDL for OpenGL unless this pygame_sdl2
+                        // hint is set. Madeira has no OpenGL driver, so the window could not be
+                        // created and the game quit ("pygame_sdl2.error.error: Invalid window",
+                        // The Sea Wolves). Ren'Py's renderer still requests OpenGL itself, and
+                        // only pygame_sdl2 reads the hint. env.PYGAME_SDL2_AVOID_GL = 0 in a
+                        // config file restores the old behavior.
+                        setenv("PYGAME_SDL2_AVOID_GL", "1", 1)
                         if let prerequisites {
                             // Installers can create 32-bit children after a 64-bit launch.
                             // The GDI table and sync engine are selected once per session.
