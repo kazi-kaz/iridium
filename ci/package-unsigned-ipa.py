@@ -22,11 +22,38 @@ PEM_METADATA_LINE = re.compile(rb"[A-Za-z0-9-]+:[ -~]*")
 MAX_PEM_SCAN = 1024 * 1024
 WINDOWS_MODULE_SUFFIXES = {".dll", ".exe", ".drv", ".sys", ".acm", ".cpl", ".ax", ".ocx", ".mui", ".rll"}
 CARRIER_IDENTIFIER = b"software.iridium\0"
-CARRIER_ENTITLEMENTS = {"com.apple.developer.kernel.increased-memory-limit": True}
+# Extended virtual addressing lifts the 63 GB task map; Steam's Chromium
+# helper reserves 16-32 GB pools that cannot fit without it (2026-10-11).
+CARRIER_ENTITLEMENTS = {"com.apple.developer.kernel.extended-virtual-addressing": True,
+                        "com.apple.developer.kernel.increased-memory-limit": True}
 CARRIER_XML = plistlib.dumps(CARRIER_ENTITLEMENTS)
-# Apple's canonical DER encoding of the same one-key boolean dictionary.
-CARRIER_DER = (bytes.fromhex("703d020101b03830360c31")
-               + next(iter(CARRIER_ENTITLEMENTS)).encode("utf-8") + bytes.fromhex("0101ff"))
+
+
+def _der_length(n):
+    if n < 0x80:
+        return bytes([n])
+    body = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(body)]) + body
+
+
+def _der_boolean_dictionary(keys):
+    """Apple's entitlement DER: [APPLICATION 16] { INTEGER 1, [CONTEXT 16] { SEQUENCE { UTF8String key, BOOLEAN true } ... } }."""
+    pairs = b""
+    for key in keys:
+        raw = key.encode("utf-8")
+        body = b"\x0c" + _der_length(len(raw)) + raw + b"\x01\x01\xff"
+        pairs += b"\x30" + _der_length(len(body)) + body
+    dictionary = b"\xb0" + _der_length(len(pairs)) + pairs
+    body = b"\x02\x01\x01" + dictionary
+    return b"\x70" + _der_length(len(body)) + body
+
+
+# codesign --generate-entitlement-der orders the dictionary itself. Accept the
+# two canonical orders for exactly these keys (by key text, or by DER encoding,
+# which puts the shorter key first) and nothing else.
+CARRIER_DER = _der_boolean_dictionary(sorted(CARRIER_ENTITLEMENTS))
+CARRIER_DERS = {CARRIER_DER,
+                _der_boolean_dictionary(sorted(CARRIER_ENTITLEMENTS, key=lambda k: (len(k), k)))}
 
 
 def macho_slices(data):
@@ -118,10 +145,11 @@ def carrier_signature(data, info_bytes, resource_bytes):
         expected = {
             2: (0xfade0c01, bytes.fromhex("fade0c010000000c00000000")),
             5: (0xfade7171, struct.pack(">II", 0xfade7171, 8 + len(CARRIER_XML)) + CARRIER_XML),
-            7: (0xfade7172, struct.pack(">II", 0xfade7172, 8 + len(CARRIER_DER)) + CARRIER_DER),
             0x10000: (0xfade0b01, bytes.fromhex("fade0b0100000008")),
         }
-        if set(blobs) != {0, *expected} or any(blobs[slot] != blob for slot, blob in expected.items()):
+        ders = {(0xfade7172, struct.pack(">II", 0xfade7172, 8 + len(der)) + der) for der in CARRIER_DERS}
+        if (set(blobs) != {0, 7, *expected} or any(blobs[slot] != blob for slot, blob in expected.items())
+                or blobs[7] not in ders):
             raise ValueError("Carrier contains CMS/certificates, requirements, or unexpected entitlements")
         cd_magic, cd = blobs[0]
         if cd_magic != 0xfade0c02 or len(cd) < 88:
@@ -616,7 +644,7 @@ def package(app, output):
               f"avoided {report['duplicateUncompressedBytesAvoided']} uncompressed duplicate bytes; "
               f"IPA {report['ipaBytes']} bytes.")
         print("IPA compressed component sizes: " + json.dumps(report["compressedBytesByComponent"], sort_keys=True))
-    print("Created sideloading IPA with an anonymous ad-hoc increased-memory-limit carrier. "
+    print("Created sideloading IPA with an anonymous ad-hoc increased-memory-limit and extended-virtual-addressing carrier. "
           "Users must re-sign the app and sign its extensions before installation.")
 
 

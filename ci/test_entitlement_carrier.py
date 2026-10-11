@@ -62,6 +62,19 @@ class CarrierPolicyTests(unittest.TestCase):
     def test_exact_anonymous_carrier_is_accepted(self):
         packager.carrier_signature(carrier_fixture(), b"info", b"resources")
 
+    def test_both_entitlement_orders_and_nothing_narrower_are_accepted(self):
+        self.assertEqual(set(packager.CARRIER_ENTITLEMENTS), {
+            "com.apple.developer.kernel.extended-virtual-addressing",
+            "com.apple.developer.kernel.increased-memory-limit"})
+        self.assertEqual(len(packager.CARRIER_DERS), 2)
+        for der in packager.CARRIER_DERS:
+            packager.carrier_signature(carrier_fixture(replacements={7: blob(0xfade7172, der)}), b"info", b"resources")
+        single = packager._der_boolean_dictionary(["com.apple.developer.kernel.increased-memory-limit"])
+        self.assertEqual(single, bytes.fromhex("703d020101b03830360c31")
+                         + b"com.apple.developer.kernel.increased-memory-limit" + bytes.fromhex("0101ff"))
+        with self.assertRaises(ValueError):
+            packager.carrier_signature(carrier_fixture(replacements={7: blob(0xfade7172, single)}), b"info", b"resources")
+
     def test_cms_certificates_and_requirements_are_rejected(self):
         for slot, data in ((0x10000, blob(0xfade0b01, b"CMS certificate bytes")),
                            (2, blob(0xfade0c01, struct.pack(">I", 1))),

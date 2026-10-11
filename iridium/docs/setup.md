@@ -144,7 +144,12 @@ the setting and DRM check say; `steam-client = off` never does.
 list). A Steam installed in a game environment at that path, for example with
 the game's **Run Installer** option, is used as it is instead of the link.
 
-Steam, its web helper and the game share memory: use the 8 GB iPad, set
+Steam's web helper (its login window) needs the extended virtual addressing
+entitlement: without it iOS gives the app a 63 GB address map, Chromium cannot
+reserve its 16–32 GB memory pools, and the helper stops itself during startup
+(`jumbo reserve failed`, then `status 80000003`). The Iridium launch log shows
+`Entitlement com.apple.developer.kernel.extended-virtual-addressing=present`
+when the signer granted it. Steam, its web helper and the game share memory: use the 8 GB iPad, set
 `jit-pool-mb = 512` for the game, and prefer 1280 × 720 so Steam's windows fit.
 Use the 64-bit Windows client; the launch log states steam.exe's architecture.
 If the log says the game has no known Steam app ID, add `steam_appid.txt`

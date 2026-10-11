@@ -50,7 +50,7 @@ xcrun swiftc "$root/MadeiraSupport/MadeiraLaunchOptions.swift" \
 if [ "$#" -gt 0 ]; then
   app=$1
   codesign --verify --deep --strict "$app"
-  codesign -d --entitlements :- "$app" 2>/dev/null | python3 -c 'import plistlib,sys; assert plistlib.loads(sys.stdin.buffer.read())["com.apple.developer.kernel.increased-memory-limit"] is True'
+  codesign -d --entitlements :- "$app" 2>/dev/null | python3 -c 'import plistlib,sys; e=plistlib.loads(sys.stdin.buffer.read()); assert e["com.apple.developer.kernel.increased-memory-limit"] is True and e["com.apple.developer.kernel.extended-virtual-addressing"] is True'
   test -f "$app/arm64ec-windows/xtajit64.dll"
   test -f "$app/arm64ec-windows/cube-x64.exe"
   test -f "$app/prefix-template.tar.gz"
