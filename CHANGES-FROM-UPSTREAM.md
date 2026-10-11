@@ -351,6 +351,16 @@ unknown options, and the default `--windowed` ended The Sea Wolves with
 `unrecognized arguments: --windowed` once its splash window worked. Arguments
 saved for the game are still passed. Checked by the same test.
 
+## WoW64 window mapping diagnostics
+
+`build/ntdll-unix/virtual_ios.c` logs `[resv-map]` lines when a request
+confined to a WoW64 guest window finds no free range or the kernel refuses the
+`MAP_FIXED`, and when a fixed-address mapping fails. After the entry-point fix
+UNDERTALE's 32-bit code ran, then its preferred base `0x410000000` was refused
+with `STATUS_NO_MEMORY`, a 0x11000-byte NLS section found no room in a window
+with a 2 GB gap, and `ucrtbase.dll` failed to initialise (`c0000142`). The
+existing logs cannot tell which step failed. Diagnostics only.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

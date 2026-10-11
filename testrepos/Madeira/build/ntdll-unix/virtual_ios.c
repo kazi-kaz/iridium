@@ -13704,7 +13704,40 @@ static void *map_reserved_area_inner( void *limit_low, void *limit_high, size_t 
             if (ptr) break;
         }
     }
+#ifdef WINE_IOS
+    /* iOS-Madeira [resv-map]: say why a WoW64 guest-window request found no
+     * room. The window is a reserved area, so the map_free_area() fallback that
+     * follows can only report EEXIST for it; this is the one place that knows
+     * whether the free-range search came up empty or the kernel refused the
+     * MAP_FIXED. UNDERTALE (i386, 2026-10-11): its preferred base 0x410000000
+     * was refused with STATUS_NO_MEMORY, then a 0x11000-byte NLS section found
+     * nothing in a window with a 2 GB gap, and ucrtbase.dll failed to
+     * initialise (c0000142). */
+    {
+        int in_window = ios_wow_limits_in_window( (ULONG_PTR)limit_low, (ULONG_PTR)limit_high );
+        static int logged;
+
+        if (ptr && anon_mmap_fixed( ptr, size, unix_prot, 0 ) != ptr)
+        {
+            int err = errno;
+            if (in_window && logged++ < 16)
+            {
+                char what[256];
+                ios_va_describe_range( ptr, size, what, sizeof(what) );
+                dprintf( 2, "[resv-map] MAP_FIXED %p+0x%lx prot=%#x in %p..%p failed: errno=%d (%s); "
+                            "there now: %s\n", ptr, (unsigned long)size, unix_prot,
+                         limit_low, limit_high, err, strerror( err ), what );
+            }
+            ptr = NULL;
+        }
+        else if (!ptr && in_window && logged++ < 16)
+            dprintf( 2, "[resv-map] no free range of 0x%lx (align %#lx, %s) in %p..%p\n",
+                     (unsigned long)size, (unsigned long)align_mask,
+                     top_down ? "top-down" : "bottom-up", limit_low, limit_high );
+    }
+#else
     if (ptr && anon_mmap_fixed( ptr, size, unix_prot, 0 ) != ptr) ptr = NULL;
+#endif
     return ptr;
 }
 
@@ -13748,6 +13781,20 @@ static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot )
     return STATUS_SUCCESS;
 
 failed:
+#ifdef WINE_IOS
+    {   /* [resv-map]: see map_reserved_area_inner. */
+        static int logged;
+        int err = errno;
+        if (logged++ < 16)
+        {
+            char what[256];
+            ios_va_describe_range( start, (char *)end - start, what, sizeof(what) );
+            dprintf( 2, "[resv-map] fixed %p+0x%lx: mmap at %p failed errno=%d (%s); there now: %s\n",
+                     base, (unsigned long)size, start, err, strerror( err ), what );
+        }
+        errno = err;
+    }
+#endif
     if (errno == ENOMEM)
     {
         ERR( "out of memory for %p-%p\n", base, (char *)base + size );
