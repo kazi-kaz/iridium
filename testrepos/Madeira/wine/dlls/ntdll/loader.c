@@ -387,6 +387,32 @@ __ASM_GLOBAL_FUNC(call_dll_entry_point,
 static inline BOOL call_dll_entry_point( DLLENTRYPROC proc, void *module,
                                          UINT reason, void *reserved )
 {
+#if defined(__aarch64__) && !defined(__arm64ec__)
+    /* iOS-Madeira: enter a native ARM64 module through its JIT-pool copy.
+     *
+     * Every other call into such a module lands in the pool copy, which has
+     * its own .data and .bss. The entry point (or TLS callback) address is in
+     * the original view, and a page of that view can still be executable, so
+     * the CRT startup could run there and initialise the original view's
+     * globals while the pool copy kept zeros. UNDERTALE (i386, 2026-10-11):
+     * xtajit.dll's DllMainCRTStartup ran at its original address
+     * ([x18-emul3] pc=libwow64fex+0x10a8), the pool copy's thread map
+     * (WOW64/Module.cpp `Threads`) kept max_load_factor 0, and the first
+     * BTCpuThreadInit's Threads.emplace threw std::overflow_error out of
+     * __next_prime: exit 0xfe63002c (FEX's RaiseException stub). The
+     * translation is the identity for a module without a pool copy. */
+    extern void *xlate_ios_jit( void *ptr );
+    DLLENTRYPROC pool = (DLLENTRYPROC)xlate_ios_jit( (void *)proc );
+
+    if (pool && pool != proc)
+    {
+        static int logged;
+        if (logged++ < 16)
+            ERR( "[entry-pool] module %p: entry %p runs from pool copy %p (reason %u)\n",
+                 module, proc, pool, reason );
+        proc = pool;
+    }
+#endif
     return proc( module, reason, reserved );
 }
 #endif
@@ -1724,7 +1750,7 @@ static BOOL is_dll_native_subsystem( LDR_DATA_TABLE_ENTRY *mod, const IMAGE_NT_H
     return TRUE;
 }
 
-#ifdef __arm64ec__
+#if defined(__arm64ec__) || defined(__aarch64__)
 /* iOS-Madeira: publish a module's TLS slot to its JIT-pool copy too.
  *
  * Builtin ARM64EC images (xtajit64, d3d11, dxgi, ...) execute from a copy in
@@ -1743,7 +1769,10 @@ static BOOL is_dll_native_subsystem( LDR_DATA_TABLE_ENTRY *mod, const IMAGE_NT_H
  * Only the threads that JIT-compiled showed the clobbered epoch.
  *
  * Mirror the slot into the pool copy. The translation is the identity for a
- * module without a pool copy, and the copy step maps writable sections RW. */
+ * module without a pool copy, and the copy step maps writable sections RW.
+ *
+ * The native ARM64 ntdll (WoW64 sessions: xtajit.dll = libwow64fex.dll has a
+ * TLS directory) needs the same, now that it has xlate_ios_jit too. */
 static void ios_sync_tls_index_to_pool( DWORD *index, ULONG slot, const WCHAR *name )
 {
     extern void *xlate_ios_jit( void *ptr );
@@ -1846,7 +1875,7 @@ static BOOL alloc_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
     if (thread) NtClose( thread );
 
     *(DWORD *)dir->AddressOfIndex = i;
-#ifdef __arm64ec__
+#if defined(__arm64ec__) || defined(__aarch64__)
     ios_sync_tls_index_to_pool( (DWORD *)dir->AddressOfIndex, i, mod->BaseDllName.Buffer );
 #endif
     tls_dirs[i] = *dir;

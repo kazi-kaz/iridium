@@ -2141,6 +2141,18 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
                 handle, (unsigned int)exit_code,
                 (unsigned long long)g_wine_dispatcher_count,
                 (unsigned long long)g_wine_unix_call_count);
+            /* iOS-Madeira: FEX's Windows shims end the process from an
+             * unimplemented API with 0xFE000000 | file tag << 16 | __LINE__
+             * (Source/Windows/Common/Priv.h, UNIMPLEMENTED()). Name it, since
+             * the status means nothing to Wine. 0xfe63002c, WinAPI/Misc.cpp:44,
+             * is RaiseException: a C++ throw inside the CPU backend. */
+            if (((unsigned int)exit_code & 0xff000000u) == 0xfe000000u)
+                dprintf( 2, "[fex-unimpl] exit 0x%08x is FEX's UNIMPLEMENTED() stub: file tag '%c', "
+                            "line %u (Common/WinAPI/Misc.cpp:44 = RaiseException, a C++ throw)\n",
+                         (unsigned int)exit_code,
+                         (char)(((unsigned int)exit_code >> 16) & 0x7f) >= 0x20 ?
+                             (char)(((unsigned int)exit_code >> 16) & 0x7f) : '?',
+                         (unsigned int)exit_code & 0xffffu );
             /* task #24: Thumper's settings page deliberately calls
              * ExitProcess(-1) from a fresh thread with no preceding
              * exception — the deciding code is invisible. Dump the calling

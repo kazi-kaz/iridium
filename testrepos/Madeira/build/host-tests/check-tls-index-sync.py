@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A module's TLS slot reaches its JIT-pool copy, not only the original view.
 
-Builtin ARM64EC images run from a pool copy with its own .data, so their TLS
+Builtin ARM64EC and native ARM64 images run from a pool copy with its own
+.data, so their TLS
 code reads _tls_index there. alloc_tls_slot (wine/dlls/ntdll/loader.c) used to
 store the slot only in the original view, leaving the copy at 0 and sending
 those modules' thread_locals into the main executable's TLS block (Kincaid:
@@ -30,7 +31,8 @@ store = alloc.index("*(DWORD *)dir->AddressOfIndex = i;")
 sync = alloc.index("ios_sync_tls_index_to_pool( (DWORD *)dir->AddressOfIndex, i, mod->BaseDllName.Buffer );")
 assert store < sync, "the pool copy must be synced after the original store"
 assert "tls_dirs[i] = *dir;" in alloc[sync:], "sync sits before the slot is published"
-assert re.search(r"#ifdef __arm64ec__\s*\n\s*ios_sync_tls_index_to_pool", alloc), "sync is ARM64EC-only"
+assert re.search(r"#if defined\(__arm64ec__\) \|\| defined\(__aarch64__\)\s*\n\s*ios_sync_tls_index_to_pool", alloc), \
+    "sync runs in the ARM64EC and native ARM64 ntdlls (both have xlate_ios_jit)"
 
 harness = r'''
 #include <stdio.h>

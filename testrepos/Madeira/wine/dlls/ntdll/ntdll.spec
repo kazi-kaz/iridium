@@ -1753,7 +1753,7 @@
 @ extern -private __wine_syscall_dispatcher
 @ extern -private __wine_unix_call_dispatcher
 @ extern -private -arch=arm64ec __wine_unix_call_dispatcher_arm64ec
-@ extern -private -arch=arm64ec p_ios_jit_translate_addr
+@ extern -private -arch=arm64,arm64ec p_ios_jit_translate_addr
 @ extern -private -arch=arm64,arm64ec p_ios_jit_reverse_translate_addr
 @ extern -private ios_teb_tsd_offset
 # ml1131: [xp-api] probe counters (sync.c), read by ntdll-unix

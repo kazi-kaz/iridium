@@ -313,8 +313,27 @@ GPL-3.0-or-later and the Madeira Converter Exception apply.
 TLS block before `init_wow64()`, which never returns. FEX's WoW64 backend
 (`libwow64fex.dll`, loaded as `xtajit.dll`) has a TLS directory, and
 `alloc_tls_slot()` skips threads with no TLS block, so its first `thread_local`
-access read through NULL (UNDERTALE, i386, 2026-10-11). Checked by
-`build/host-tests/check-wow64-tls.py`.
+access read through NULL (UNDERTALE, i386, 2026-10-11). That access was the
+C++ runtime's exception globals while throwing the error described in the next
+section. Checked by `build/host-tests/check-wow64-tls.py`.
+
+## Native ARM64 entry points run in the JIT-pool copy
+
+`wine/dlls/ntdll/signal_arm64.c`, `ntdll.spec` and `loader.c`: the native ARM64
+ntdll, which hosts WoW64, now defines and exports the forward JIT-pool hook
+(`p_ios_jit_translate_addr`, `xlate_ios_jit`) that the Unix side already
+installs in every ntdll exporting it. `call_dll_entry_point()` enters a native
+ARM64 module's entry point and TLS callbacks through its pool copy, and
+`alloc_tls_slot()` mirrors the TLS slot into that copy as the ARM64EC ntdll
+does. `xtajit.dll`'s CRT startup ran at its original address (the log's
+`[x18-emul3]` at `libwow64fex.dll+0x10a8`), and the pool copy's globals, which
+every other call uses, were not constructed:
+FEX's WoW64 thread map kept a zero load factor and the first
+`BTCpuThreadInit()` threw `std::overflow_error` from `__next_prime`. FEX's
+`RaiseException` stub then ended the process with `0xfe63002c` (UNDERTALE,
+i386, 2026-10-11). `build/ntdll-unix/process_ios.c` names such `0xFExxxxxx`
+exit codes in the log. Checked by `build/host-tests/check-entry-pool.py`.
+No FEX source changes.
 
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 

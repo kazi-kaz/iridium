@@ -139,13 +139,20 @@ int main(void)
                 self.assertEqual(hook in result, ios, hook)
 
     @unittest.skipUnless(shutil.which("cc"), "C preprocessor required")
-    def test_loader_jit_alias_calls_only_exist_in_arm64ec_build(self):
+    def test_loader_jit_alias_calls_only_exist_in_builds_that_define_them(self):
         source = (ROOT / "testrepos/Madeira/wine/dlls/ntdll/loader.c").read_text()
         source = "\n".join(line for line in source.splitlines()
                            if not line.lstrip().startswith("#include"))
+        # xlate_ios_jit is defined by signal_arm64ec.c and, for the native
+        # ARM64 ntdll that hosts WoW64, by signal_arm64.c. The i386 and x86_64
+        # PE ntdlls have neither and must not reference it.
+        defined_in = {"__arm64ec__": "signal_arm64ec.c", "__aarch64__": "signal_arm64.c"}
         for arch in ("__aarch64__", "__x86_64__", "__i386__", "__arm64ec__"):
             result = subprocess.run(
                 ["cc", "-E", "-P", "-undef", "-D" + arch, "-x", "c", "-"],
                 input=source, text=True, capture_output=True, check=True).stdout
-            for hook in ("xlate_ios_jit", "iat_life_sweep"):
-                self.assertEqual(hook in result, arch == "__arm64ec__", (arch, hook))
+            self.assertEqual("xlate_ios_jit" in result, arch in defined_in, arch)
+            self.assertEqual("iat_life_sweep" in result, arch == "__arm64ec__", arch)
+        for arch, name in defined_in.items():
+            signal = (ROOT / "testrepos/Madeira/wine/dlls/ntdll" / name).read_text()
+            self.assertIn("void *__attribute__((naked)) xlate_ios_jit( void *ptr )", signal, arch)

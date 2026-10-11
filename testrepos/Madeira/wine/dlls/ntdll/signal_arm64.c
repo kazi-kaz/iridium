@@ -129,6 +129,29 @@ void *__attribute__((naked)) xlate_ios_jit_rev( void *ptr )
          "1: ret\n\t"
          ".seh_endproc" );
 }
+
+/* iOS-Madeira: the forward hook (PE VA -> JIT-pool alias), aarch64
+ * counterpart of xlate_ios_jit in signal_arm64ec.c. Unix-side
+ * load_ntdll_functions already installs p_ios_jit_translate_addr in every
+ * ntdll that exports it; this ntdll did not export it, so the hook was
+ * reported as NOT FOUND and aarch64 code had no way to reach a module's
+ * pool copy. The loader uses it to run DLL entry points and TLS callbacks
+ * in the copy the rest of the module runs in (loader.c,
+ * call_dll_entry_point). NULL -> identity. */
+void *p_ios_jit_translate_addr = NULL;
+
+void *__attribute__((naked)) xlate_ios_jit( void *ptr )
+{
+    asm( ".seh_proc xlate_ios_jit\n\t"
+         ".seh_endprologue\n\t"
+         "cbz x0, 1f\n\t"                                 /* NULL → return NULL */
+         "adrp x16, p_ios_jit_translate_addr\n\t"
+         "ldr x16, [x16, #:lo12:p_ios_jit_translate_addr]\n\t"
+         "cbz x16, 1f\n\t"                                /* fn-ptr unset → identity */
+         "br x16\n"                                       /* tail-call unix fn */
+         "1: ret\n\t"
+         ".seh_endproc" );
+}
 #else
 extern void *xlate_ios_jit_rev( void *ptr );
 #endif
