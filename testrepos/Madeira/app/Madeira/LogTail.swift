@@ -88,23 +88,41 @@ final class LogTail {
         guard fd >= 0 else { return }
         var buf = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
-            let n = buf.withUnsafeMutableBytes { ptr in
-                read(fd, ptr.baseAddress, ptr.count)
+            // One autorelease pool per chunk. With Debug Trace on, Wine writes
+            // faster than this loop reads, so the loop (and the GCD work item
+            // around it) never ends and the queue's own pool is never drained.
+            // Every line's Foundation bridging (String(data:), the contains()
+            // filters in LogStore) autoreleases a few small objects; they piled
+            // up at ~5 blocks per line until iOS killed the app at ~4.2 GB
+            // (Kincaid and a Unity game, ~3 minutes each).
+            let reachedEnd: Bool = autoreleasepool {
+                let n = buf.withUnsafeMutableBytes { ptr in
+                    read(fd, ptr.baseAddress, ptr.count)
+                }
+                if n <= 0 { return true }
+                lineBuffer.append(contentsOf: buf[0..<n])
+                flushLines()
+                return false
             }
-            if n <= 0 { break }
-            lineBuffer.append(contentsOf: buf[0..<n])
-            flushLines()
+            if reachedEnd { break }
         }
     }
 
     private func flushLines() {
-        while let nlIdx = lineBuffer.firstIndex(of: 0x0A) {
-            let lineData = lineBuffer.prefix(nlIdx)
-            lineBuffer.removeSubrange(0...nlIdx)
-            if let line = String(data: Data(lineData), encoding: .utf8),
+        // Walk the buffer once and drop the consumed prefix once. Removing each
+        // line from the front shifted the whole remaining buffer per line, which
+        // kept this queue near 100% CPU under Debug Trace volume.
+        var start = lineBuffer.startIndex
+        while let nlIdx = lineBuffer[start...].firstIndex(of: 0x0A) {
+            if nlIdx > start,
+               let line = String(data: lineBuffer[start..<nlIdx], encoding: .utf8),
                !line.isEmpty {
                 onLine(line)
             }
+            start = lineBuffer.index(after: nlIdx)
+        }
+        if start > lineBuffer.startIndex {
+            lineBuffer.removeSubrange(lineBuffer.startIndex..<start)
         }
         // Don't let the buffer grow unbounded if a single "line" is huge
         if lineBuffer.count > 1024 * 1024 {

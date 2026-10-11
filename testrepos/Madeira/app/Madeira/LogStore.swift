@@ -118,7 +118,14 @@ final class LogStore: ObservableObject {
     }
 
     /// Called from tail-file callback (background queue) or C callback.
+    /// The C callbacks arrive on Wine threads, which are plain pthreads whose
+    /// implicit autorelease pool drains only at thread exit, so the filters'
+    /// Foundation bridging is scoped to a pool here.
     private func handleRawLine(_ raw: String) {
+        autoreleasepool { handleRawLineInPool(raw) }
+    }
+
+    private func handleRawLineInPool(_ raw: String) {
         // Filter out lines we never want in UI (excessive byte spam, etc.)
         if shouldDropLine(raw) { return }
 
