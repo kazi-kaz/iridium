@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <winsvc.h>
 #include <tlhelp32.h>
+#include <winternl.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
@@ -322,6 +323,20 @@ static void steam_stop(void)
     steam_process = NULL;
 }
 
+/* Madeira runs the whole session's Windows processes in one task with one
+ * win32u. A new process starts with a copy of the FIRST process's PEB, and
+ * win32u stores the GDI handle table address only in the PEB of the process
+ * that initialises it. This helper is the first process, so it initialises GDI
+ * before starting anything. Otherwise every child's gdi32 finds no table and
+ * faults on its first GDI handle: steam.exe, then each winedbg started for it,
+ * read 0x54e, 0x566, ... (2026-10-10, iPad). */
+static void gdi_session_init(void)
+{
+    HGDIOBJ font = GetStockObject(DEFAULT_GUI_FONT);
+    void *table = *(void **)((BYTE *)NtCurrentTeb()->ProcessEnvironmentBlock + 0xf8);
+    fprintf(stderr, "[Prerequisites] GDI handle table %p (stock font %p)\n", table, (void *)font);
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc != 2) return ERROR_INVALID_PARAMETER;
@@ -330,6 +345,7 @@ int wmain(int argc, wchar_t **argv)
     UINT runs = GetPrivateProfileIntW(L"plan", L"runs", 0, config);
     UINT use_steam = GetPrivateProfileIntW(L"plan", L"steam", 0, config);
     if (runs > 64 || use_steam > 1 || (!runs && !use_steam)) return ERROR_INVALID_DATA;
+    gdi_session_init();
     status("services", 0, 0, 0, 0);
     DWORD code = services_start();
     fprintf(stderr, "[Prerequisites] Wine services: %lu\n", code);

@@ -114,7 +114,9 @@ static void status(const char *phase, UINT run, UINT runs, UINT process, UINT pr
 static DWORD codes[4], service_error, registry_error;
 static int calls, marked, game, cancelled_flag, bad_field, unconfirmed, cancel_after_process;
 static BOOL cancelled(void) { return cancelled_flag; }
-static DWORD services_start(void) { return service_error; }
+static int gdi_ready;
+static void gdi_session_init(void) { gdi_ready = 1; }
+static DWORD services_start(void) { assert(gdi_ready); return service_error; }
 static UINT plan_runs = 2, plan_steam;
 static UINT GetPrivateProfileIntW(const wchar_t *s, const wchar_t *k, UINT d, const wchar_t *p) {
     (void)s; (void)d; (void)p;
@@ -140,7 +142,7 @@ static DWORD run_process(DWORD timeout, BOOL *exited) {
 }
 ''' + installed + entry + r'''
 static void reset(void) {
-    memset(codes,0,sizeof(codes)); calls=marked=game=cancelled_flag=bad_field=unconfirmed=0;
+    memset(codes,0,sizeof(codes)); calls=marked=game=cancelled_flag=bad_field=unconfirmed=gdi_ready=0;
     cancel_after_process=0;
     service_error=registry_error=0;
     plan_runs=2; plan_steam=0; steam_error=0; steam_started=steam_stopped=installers_before_steam=0;

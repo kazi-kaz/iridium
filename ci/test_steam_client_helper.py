@@ -159,7 +159,7 @@ class SteamClientHelperUnderWine(unittest.TestCase):
                             "-o", str(out), *extra], check=True, capture_output=True, timeout=120)
 
         build("helper", HELPER.read_text(), cls.drive / "IridiumPrerequisites/iridium-prerequisites.exe",
-              unicode=True, extra=("-static-libgcc", "-ladvapi32"))
+              unicode=True, extra=("-static-libgcc", "-ladvapi32", "-lgdi32"))
         build("steam", FAKE_STEAM, work / "Steam/steam.exe", unicode=True)
         build("webhelper", FAKE_HELPER, work / "Steam/steamwebhelper.exe")
         build("game", FAKE_GAME, work / "game.exe")
@@ -203,6 +203,8 @@ class SteamClientHelperUnderWine(unittest.TestCase):
         code, err = self.run_helper(plan(), env={"SteamAppId": "655500", "SteamGameId": "655500"})
         self.assertEqual(code, 7, err)
         self.assertIn("Steam account signed in.", err)
+        # The first process must own the GDI table before any child is cloned from it.
+        self.assertRegex(err, r"\[Prerequisites\] GDI handle table (0x)?0*[1-9a-fA-F][0-9a-fA-F]*")
         self.assertEqual(self.log("game.log"), ["user=12345", "appid=655500"])
         steam = self.log("steam.log")
         self.assertEqual(steam[0], "steam-env-clean")
