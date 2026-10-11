@@ -307,6 +307,15 @@ allocation fails instead; `env.MADEIRA_EC_CONHOST=1` restores the old
 behavior. The upstream host test runs as `build/host-tests/check-ec-conhost.py`.
 GPL-3.0-or-later and the Madeira Converter Exception apply.
 
+## WoW64 threads' 64-bit TLS
+
+`wine/dlls/ntdll/loader.c`: the 64-bit ntdll allocates a WoW64 thread's module
+TLS block before `init_wow64()`, which never returns. FEX's WoW64 backend
+(`libwow64fex.dll`, loaded as `xtajit.dll`) has a TLS directory, and
+`alloc_tls_slot()` skips threads with no TLS block, so its first `thread_local`
+access read through NULL (UNDERTALE, i386, 2026-10-11). Checked by
+`build/host-tests/check-wow64-tls.py`.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

@@ -5762,6 +5762,21 @@ void loader_init( CONTEXT *context, void **entry )
             locale_init();
             TRACE( "wow64: early locale_init done before Wow64LdrpInitialize\n" );
 #endif
+#ifdef _WIN64
+            /* iOS-Madeira: the 64-bit side of this thread needs its module TLS
+             * block before init_wow64() never returns. The CPU backend
+             * (xtajit.dll = libwow64fex.dll) has a TLS directory, unlike
+             * Windows' wow64cpu.dll, and alloc_tls_slot() only fills threads
+             * whose ThreadLocalStoragePointer is already set. Without this the
+             * main thread's pointer stayed NULL and the backend's first
+             * thread_local read NULL[index]: UNDERTALE (i386) faulted at
+             * libwow64fex.dll+0x1b2974 right after thread init (2026-10-11). */
+            if ((status = alloc_thread_tls()) != STATUS_SUCCESS)
+            {
+                ERR( "wow64: 64-bit TLS init failed, status %lx\n", status );
+                NtTerminateProcess( GetCurrentProcess(), status );
+            }
+#endif
             init_wow64( context );  /* 64-bit: does not return */
         }
 
@@ -5830,7 +5845,14 @@ void loader_init( CONTEXT *context, void **entry )
     else
     {
 #ifdef _WIN64
-        if (NtCurrentTeb()->WowTebOffset) init_wow64( context );
+        if (NtCurrentTeb()->WowTebOffset)
+        {
+            /* Same as the first thread above: allocate the 64-bit TLS block
+             * first, because init_wow64() does not return. */
+            if ((status = alloc_thread_tls()) != STATUS_SUCCESS)
+                NtTerminateThread( GetCurrentThread(), status );
+            init_wow64( context );
+        }
 #endif
 #ifdef __arm64ec__
         {
