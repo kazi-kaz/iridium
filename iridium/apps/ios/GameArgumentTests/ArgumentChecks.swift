@@ -215,6 +215,21 @@ import IridiumProfiles
         graphics.launchProfile.arguments = ["-force-vulkan", "literal space", ""]
         check(model.gameApplyingCompatibilityLaunchDefaults(graphics, resolvedPolicy: policy).launchProfile.arguments
               == graphics.launchProfile.arguments, "Explicit graphics selection was replaced")
+        // Ren'Py rejects unknown options: no generic defaults for its folder layout.
+        let renpyRoot = root.appendingPathComponent("renpy-game")
+        for folder in ["renpy", "game"] {
+            try FileManager.default.createDirectory(at: renpyRoot.appendingPathComponent(folder),
+                                                    withIntermediateDirectories: true)
+        }
+        var renpy = cleared; renpy.installPath = renpyRoot.path
+        check(model.gameApplyingCompatibilityLaunchDefaults(renpy, resolvedPolicy: policy).launchProfile.arguments.isEmpty,
+              "A Ren'Py game received generic launch defaults")
+        renpy.rendererPreset = .metalOpenGLFallback
+        check(model.gameApplyingCompatibilityLaunchDefaults(renpy, resolvedPolicy: policy).launchProfile.arguments.isEmpty,
+              "A Ren'Py game received Unity graphics defaults")
+        renpy.launchProfile.arguments = ["--savedir", "saves"]
+        check(model.gameApplyingCompatibilityLaunchDefaults(renpy, resolvedPolicy: policy).launchProfile.arguments
+              == ["--savedir", "saves"], "A Ren'Py game's saved arguments changed")
         check(cleared.launchProfile.arguments.isEmpty, "Resolving automatic defaults mutated the stored record")
         print("\(checks) production argument checks passed")
     }

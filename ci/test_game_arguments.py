@@ -32,10 +32,12 @@ class GameArgumentTests(unittest.TestCase):
             methods = ['canEditGameArguments', 'saveGameArguments', 'beginGameFileMutation',
                        'requireGameFileMutation', 'compatibilityProfile',
                        'gameApplyingCompatibilityLaunchDefaults', 'launchArgumentsContainExplicitGraphicsAPI',
-                       'metalOpenGLFallbackArguments', 'argumentsFilteringPresentationOnlyDefaults']
+                       'metalOpenGLFallbackArguments', 'argumentsFilteringPresentationOnlyDefaults',
+                       'isRenPyGame']
             bodies = []
             for name in methods:
-                marker = '    private func ' if ('    private func ' + name + '(') in app else '    func '
+                marker = next(m for m in ('    private func ', '    static func ', '    func ')
+                              if (m + name + '(') in app)
                 start = app.index(marker + name + '(')
                 end = app.index('\n    }\n', start) + len('\n    }\n')
                 # Access is host-only; the production body is unchanged.
