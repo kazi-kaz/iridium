@@ -6,7 +6,7 @@ import os
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSFERS = ('media', 'native-compiled', 'wine-compiled', 'windows-compiled',
-             'graphics-compiled', 'jit-compiled')
+             'graphics-compiled', 'jit-compiled', 'opengl-compiled')
 
 # Compiler outputs are already retained. App linking uses the finished archives,
 # frameworks and DLLs, not their loose compilation objects.
@@ -21,6 +21,7 @@ OBJECT_TREES = (
     'testrepos/Madeira/research/dxmt/build-aarch64-ci',
     'testrepos/Madeira/research/dxmt/build-i386-ci',
     '.build/runtime-sources/angle/out/iridium-ios',
+    'testrepos/Madeira/build/mesa-ios/obj',
     '.build/idevice-target', '.build/StikJIT-derived',
 )
 

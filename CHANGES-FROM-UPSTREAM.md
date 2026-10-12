@@ -375,6 +375,22 @@ only, for 64-bit programs.
 Desktop-only OpenGL programs (fixed function, compatibility profiles) still
 fail on this backend: OpenGL ES has no such functions.
 
+### Desktop OpenGL: Mesa Zink on MoltenVK (step 2)
+
+`build/mesa-ios/` (build script, cross file, patches 0001-0007) and
+`build/moltenvk-ios/build.sh` come unmodified from c-gow/Madeira 9264a96. The
+new `opengl` compiler stage (`ci/prepare-opengl.sh`) fetches Mesa 25.0.7 (the
+release archive, SHA-256 checked) and MoltenVK v1.4.2
+(`db66022459ffb663aa2b50f6b018bc2e124f5edf`), runs both scripts, checks the two
+dylibs (arm64 iOS, `@rpath` names, system libraries only) and collects their
+source as `opengl-*` in the corresponding source. It is retained and reused like
+the other compiler stages. The app carries `libOSMesa.dylib` and
+`libMoltenVK.dylib` in `Frameworks/`, where sideloading tools sign them, and
+`WineProcessBridge.m` points the driver there. The driver uses Zink when its
+test context reports the Zink renderer and falls back to OpenGL ES otherwise.
+Zink on MoltenVK advertises OpenGL 4.1 (`MESA_GL_VERSION_OVERRIDE`); Metal has
+no geometry shaders, so a game that uses them fails at that shader.
+
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 
 `process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`

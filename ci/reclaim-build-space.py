@@ -6,7 +6,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSFERS = tuple('.build/' + name + '-compiled-transfer/compiled.tar.gz'
-                  for name in ('native', 'wine', 'windows', 'graphics', 'jit')) + (
+                  for name in ('native', 'wine', 'windows', 'graphics', 'jit', 'opengl')) + (
     '.build/media-transfer/media-sdk.tar.gz',
     '.build/linux-transfer/wine-userland.tar.zst',
     '.build/steam-transfer/steam-framework.tar.gz',

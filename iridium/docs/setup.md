@@ -115,11 +115,12 @@ isolated game copy.
 
 ### OpenGL games (experimental)
 
-64-bit games that draw with OpenGL ES-compatible code (SDL and LOVE games, many
-newer engines) can now open an OpenGL window. Contexts are Apple's OpenGL ES 3.0,
-so games that need desktop OpenGL (fixed-function OpenGL 1.x, compatibility
-profiles, OpenGL 3.3+ core) still fail at their own version or extension check.
-32-bit OpenGL games are not supported yet. `env.MADEIRA_NO_GL = 1` in a game's
+64-bit OpenGL games get desktop OpenGL (up to 4.1, compatibility and core
+profiles) through Mesa's Zink driver on MoltenVK. If Zink cannot start, the
+driver falls back to Apple's OpenGL ES 3.0, which only OpenGL ES-compatible
+games (SDL and LOVE games, many newer engines) can use. `gl-backend = gles` in a
+game's `iridium.cfg` forces OpenGL ES. Games that use geometry shaders fail at that
+shader: Metal has none. 32-bit OpenGL games are not supported yet. `env.MADEIRA_NO_GL = 1` in a game's
 `iridium.cfg` turns OpenGL off for that game. Look for `[winios-gl]` lines in
 the log.
 

@@ -229,6 +229,17 @@ def collect(kind):
         revisions['bootstrap_depot_tools'] = git_snapshot(
             ROOT / '.build/depot_tools', OUT / 'depot_tools.tar.gz')
         (OUT / 'angle-revisions.json').write_text(json.dumps(revisions, indent=2) + '\n')
+    elif kind == 'opengl':
+        # Mesa as its verified release archive (the patches are in this repository);
+        # MoltenVK and the dependency checkouts its fetchDependencies made.
+        sources = ROOT / '.build/runtime-sources'
+        shutil.copyfile(sources / 'mesa-25.0.7.tar.xz', OUT / 'opengl-mesa-25.0.7.tar.xz')
+        revisions = {'MoltenVK': git_snapshot(sources / 'MoltenVK', OUT / 'opengl-MoltenVK.tar.gz')}
+        external = sources / 'MoltenVK/External'
+        for repo in sorted(external.iterdir()) if external.is_dir() else ():
+            if (repo / '.git').exists():
+                revisions[repo.name] = git_snapshot(repo, OUT / ('opengl-MoltenVK-' + repo.name + '.tar.gz'))
+        (OUT / 'opengl-revisions.json').write_text(json.dumps(revisions, indent=2) + '\n')
     elif kind == 'package':
         subprocess.run([sys.executable, str(ROOT / 'ci/collect-steam-source.py')], check=True)
         subprocess.run([sys.executable, str(ROOT / 'ci/repair-release-source.py')], check=True)
@@ -237,7 +248,7 @@ def collect(kind):
         collect_rust_dependencies('media-rust-src-1.96.0.tar.xz', 'media-rust-dependencies')
         collect_rust_dependencies('rust-standard-library.tar.gz', 'jit-rust-dependencies')
         collect_moltenvk()
-        required = ['iridium.tar.gz', 'repository-revisions.json', 'angle-revisions.json',
+        required = ['iridium.tar.gz', 'repository-revisions.json', 'angle-revisions.json', 'opengl-revisions.json',
                     'StikJIT.tar.gz', 'idevice.tar.gz', 'cerbero-1.28.6.tar.xz',
                     'idevice-dependencies.json', 'idevice-ios-dependencies.txt',
                     'rust-standard-library.tar.gz', 'rust-license-texts.tar.gz',

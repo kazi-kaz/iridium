@@ -933,15 +933,22 @@ static void *wine_process_thread(void *arg) {
         /* OpenGL backend for the winios GL driver (build/win32u-unix/opengl_ios.c),
          * from c-gow/Madeira opengl-test-7:
          *   zink - desktop OpenGL 3.3-4.x: Mesa OSMesa + Zink on MoltenVK, from the
-         *          bundle's gl/ folder (not bundled by Iridium yet)
+         *          app's Frameworks/ (Iridium, ci/prepare-opengl.sh) or gl/ folder
          *   gles - Apple's OpenGL ES 3.0 (EAGL); desktop-GL-only apps fail
          * madeira.cfg `gl-backend = zink|gles` chooses; otherwise zink when its
          * dylibs are bundled. MADEIRA_GL_BACKEND in the environment wins over both.
          * The driver falls back to gles by itself if Zink cannot start. */
         {
-            NSString *glDir = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"gl"];
+            /* Iridium ships the two dylibs in Frameworks/, where sideloading
+             * tools sign them; Madeira's own app uses gl/. */
+            NSString *glDir = [[NSBundle mainBundle] privateFrameworksPath];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:
+                     [glDir stringByAppendingPathComponent:@"libOSMesa.dylib"]])
+                glDir = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"gl"];
             BOOL haveZink = [[NSFileManager defaultManager] fileExistsAtPath:
-                                [glDir stringByAppendingPathComponent:@"libOSMesa.dylib"]];
+                                [glDir stringByAppendingPathComponent:@"libOSMesa.dylib"]]
+                         && [[NSFileManager defaultManager] fileExistsAtPath:
+                                [glDir stringByAppendingPathComponent:@"libMoltenVK.dylib"]];
             char glb[16] = "";
             if (!madeira_cfg_get("gl-backend", glb, sizeof glb) || !glb[0])
                 strlcpy(glb, haveZink ? "zink" : "gles", sizeof glb);

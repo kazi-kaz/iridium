@@ -140,6 +140,15 @@ targets:
         buildPhase: resources
       - path: ../../../testrepos/Madeira/app/Madeira/cacert.pem
         buildPhase: resources
+      # Desktop OpenGL (ci/prepare-opengl.sh): Mesa OSMesa + Zink and MoltenVK.
+      # Frameworks/, where sideloading tools sign every dylib; the winios GL
+      # driver dlopens them. Absent in builds without them (OpenGL ES only).
+      - path: ../../../testrepos/Madeira/app/Madeira/gl
+        optional: true
+        includes: ["*.dylib"]
+        buildPhase:
+          copyFiles:
+            destination: frameworks
     settings:
       base:
         IRIDIUM_RUNTIME_PROFILE: madeira

@@ -72,6 +72,8 @@ COMPONENT_INPUTS = {
                 'ci/patches/rpmalloc-compact-runtime.patch',
                 'ci/patches/fex-thread-init-failure.patch'),
     'graphics': ('ci/prepare-graphics.sh', 'ci/verify-graphics.py'),
+    'opengl': ('ci/prepare-opengl.sh', 'testrepos/Madeira/build/mesa-ios',
+               'testrepos/Madeira/build/moltenvk-ios'),
     'jit': ('ci/prepare-stikjit.sh',
             'ci/fetch-runtime-inputs.py', 'ci/runtime-inputs.json'),
 }

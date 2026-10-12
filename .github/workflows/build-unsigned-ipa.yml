@@ -373,6 +373,41 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
+      - name: Select opengl compilation
+        id: compiled_opengl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_ASSETS: ${{ inputs.reuse_assets }}
+        run: python3 ci/compiled-components.py select opengl
+      - name: Download opengl compilation
+        if: steps.compiled_opengl.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ steps.compiled_opengl.outputs.artifact }}
+          path: .build/opengl-compiled-transfer
+          run-id: ${{ steps.compiled_opengl.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Restore opengl compilation
+        if: steps.compiled_opengl.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPONENT_RUN_ID: ${{ steps.compiled_opengl.outputs.run_id }}
+        run: python3 ci/compiled-components.py restore opengl
+      - name: Compile opengl
+        if: steps.compiled_opengl.outputs.run_id == ''
+        run: bash ci/prepare-opengl.sh
+      - name: Save opengl compilation
+        if: steps.compiled_opengl.outputs.run_id == ''
+        run: python3 ci/compiled-components.py package opengl
+      - name: Retain opengl compilation
+        if: steps.compiled_opengl.outputs.run_id == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.compiled_opengl.outputs.artifact }}
+          path: .build/opengl-compiled-transfer/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
       - name: Select jit compilation
         id: compiled_jit
         env:

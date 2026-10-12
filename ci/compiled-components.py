@@ -35,6 +35,9 @@ PATHS = {
     'graphics': tuple(t for t in prepared.TREES if t.endswith('.framework')) +
                 (M + 'app/Madeira/legal/ANGLE-LICENSE.txt', '.build/corresponding-source'),
     'jit': ('iridium/apps/ios/BuiltinJIT/Vendor/StikJIT.xcframework', '.build/corresponding-source'),
+    'opengl': (M + 'app/Madeira/gl',) + tuple(M + 'app/Madeira/licenses/' + name for name in (
+        'Mesa-license.rst', 'MoltenVK-Apache-2.0.txt', 'SPIRV-Cross-Apache-2.0.txt',
+        'SPIRV-Tools-Apache-2.0.txt', 'cereal-BSD-3-Clause.txt')) + ('.build/corresponding-source',),
 }
 
 
@@ -46,7 +49,7 @@ def allowed(name, component):
         return False
     if p.is_relative_to('.build/corresponding-source'):
         # Each compiler owns only its own source archives and inventories.
-        prefixes = ('angle', 'depot') if component == 'graphics' else ('StikJIT', 'idevice', 'rust-')
+        prefixes = {'graphics': ('angle', 'depot'), 'opengl': ('opengl-',)}.get(component, ('StikJIT', 'idevice', 'rust-'))
         return p.name.startswith(prefixes)
     return any(p == Path(base) or p.is_relative_to(base) for base in PATHS[component])
 
@@ -120,7 +123,7 @@ if __name__ == '__main__':
             out.write('NATIVE_TOOLCHAIN=' + prepared.toolchain() + '\n')
         raise SystemExit(0)
     if len(sys.argv) != 3 or sys.argv[1] not in ('select', 'package', 'restore') or sys.argv[2] not in PATHS:
-        raise SystemExit('Usage: compiled-components.py select|package|restore native|wine|windows|graphics|jit')
+        raise SystemExit('Usage: compiled-components.py select|package|restore native|wine|windows|graphics|jit|opengl')
     action, component = sys.argv[1:]
     os.environ['NATIVE_TOOLCHAIN'] = hashlib.sha256(
         (os.environ['NATIVE_TOOLCHAIN'] + str(ROOT.resolve())).encode()).hexdigest()
