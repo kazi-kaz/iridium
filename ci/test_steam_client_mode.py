@@ -39,9 +39,11 @@ class SteamClientModeSourceTests(unittest.TestCase):
     def test_adapter_decides_before_writing_the_plan(self):
         boot = self.adapter[self.adapter.index("let mediaProbe ="):self.adapter.index("RuntimeLogCapture.writeLine(\"[Launch] Game files")]
         self.assertLess(boot.index("MadeiraSteamClient.request("), boot.index("IridiumGamePrerequisites.prepare("))
-        self.assertIn("steam: steamClient)", boot)
+        self.assertIn("steam: steamClient, dock: dockStage)", boot)
         self.assertIn("enabled: MadeiraSteamClient.isEnabled", boot)
-        self.assertIn("if !mediaProbe {", boot)
+        # Madeira Dock, when it starts the game, replaces the desktop Steam client.
+        self.assertIn("if !mediaProbe && dockStage == nil {", boot)
+        self.assertLess(boot.index("dockStage = stage"), boot.index("MadeiraSteamClient.request("))
 
     def test_plan_keys_are_the_ones_the_helper_reads(self):
         self.assertIn('"steam=\\(steam == nil ? 0 : 1)"', self.plan)

@@ -19,6 +19,11 @@
       "path": "testrepos/Madeira/research/dxmt",
       "upstream": "https://github.com/willfaust/dxmt",
       "base_revision": "a5e0cd3d41bf248fd1c030a2e1c515ba3522f4ef"
+    },
+    {
+      "path": "testrepos/madeira-dock",
+      "upstream": "https://github.com/willfaust/madeira-dock",
+      "base_revision": "72558e416a390f3669457930f09a389e54f49556"
     }
   ],
   "privacy_modified_files": [

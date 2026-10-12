@@ -113,6 +113,35 @@ file, are appended to the controller bridge's XInput overrides instead of
 replacing them; an empty value clears them. The file is not copied into the
 isolated game copy.
 
+### Steam games through Madeira Dock (experimental)
+
+For games downloaded with Iridium's Steam tab, Madeira Dock runs Valve's own
+Steam client without its window or web helper. It signs in with the account
+signed in to Iridium, Valve's servers check that the account owns the game, and
+Steam starts the game. The game and its DRM are not modified; the game's Steam
+calls, such as its DRM check, go to that client as on Windows.
+
+1. Sign in on Iridium's Steam tab and download the game there.
+2. In **Settings → Runtime → Steam Games**, tap **Download** once. Iridium
+   fetches about 72 MB of Valve's client components from Valve's update server
+   and checks them against the one client build Madeira Dock supports.
+3. Choose when Dock is used: **Games with Steam DRM** (default; executables with
+   a SteamStub `.bind` section), **All Downloaded Steam Games**, or **Off**.
+4. Play the game. The status line follows Dock: loading Valve's client, signing
+   in, the license check, then the game starting. When the game exits, Dock
+   exits with it.
+
+`steam-dock = on` or `off` in a game's `iridium.cfg` overrides the setting for
+that game. `steam-dock-launch-option = N` selects Steam's Nth launch option
+(default 0) when the first one is not the Windows game. During a Dock launch
+Iridium's own Steam connection is closed; restart Iridium before downloading
+again. Look for `[Launch] Madeira Dock` and `[dock-report]` lines in the log;
+the report contains numbers only, never the account or sign-in.
+
+Not offered yet: playing offline, and games whose executables Steam customizes
+per user. Dock is checked against the host's own sign-in reader and helper
+harnesses in CI; that does not show that a given game runs on iOS.
+
 ### Steam client mode (experimental)
 
 Games wrapped in Steam DRM (SteamStub) start only while a signed-in Steam

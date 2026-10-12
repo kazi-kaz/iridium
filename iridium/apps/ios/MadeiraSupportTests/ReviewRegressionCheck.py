@@ -53,7 +53,7 @@ def main():
             under_test.write_text('\n'.join(line for line in original.splitlines()
                 if line not in ('import UIKit', 'import MadeiraNative'))+'\n')
             binary=build('adapter', [HERE/'ReviewRuntimeStubs.swift', support/'MadeiraLaunchArguments.swift', support/'MadeiraSyncEngine.swift',
-                support/'MadeiraGameConfig.swift', support/'MadeiraSteamClient.swift', under_test, HERE/'ReviewRuntimeCheck.swift'], ['-D','BUILTIN_STIKJIT'])
+                support/'MadeiraGameConfig.swift', support/'MadeiraSteamClient.swift', support/'MadeiraSteamDock.swift', under_test, HERE/'ReviewRuntimeCheck.swift'], ['-D','BUILTIN_STIKJIT'])
             cases=['sync-save-in-flight','sync-restart','prepare-failure','prerequisite-failure','prerequisite-success','prerequisite-cancel','jit-failure','pool-failure','arena-failure','server-failure',
                    'server-died','server-delayed-ready','server-never-ready','server-exits-before-ready',
                    'server-ready-cancel','server-legacy-ready','server-legacy-delayed-ready',

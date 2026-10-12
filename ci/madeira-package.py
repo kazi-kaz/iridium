@@ -19,6 +19,7 @@ APP_FILES = (
     'MediaRuntime/mfreadwrite.dll', 'MediaRuntime/winegstreamer.dll',
     'ControllerRuntime/arm64ec/xinput.dll',
     'ControllerRuntime/aarch64/iridium-prerequisites.exe',
+    'ControllerRuntime/x64/dockhost.exe', 'ControllerRuntime/x64/dock-notices.txt',
 )
 FRAMEWORKS = ('libEGL', 'libGLESv2')
 LEGACY_PATHS = ('IridiumWineUserland', 'BundledRuntime',

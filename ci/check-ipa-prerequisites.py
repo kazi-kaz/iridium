@@ -52,6 +52,8 @@ REQUIRED = {
         "iridium/apps/ios/MediaRuntime/winegstreamer.dll",
         "iridium/apps/ios/ControllerRuntime/arm64ec/xinput.dll",
         "iridium/apps/ios/ControllerRuntime/aarch64/iridium-prerequisites.exe",
+        "iridium/apps/ios/ControllerRuntime/x64/dockhost.exe",
+        "iridium/apps/ios/ControllerRuntime/x64/dock-notices.txt",
     ],
     "legacy graphics frameworks": [
         "Amethyst-iOS/Natives/resources/Frameworks/libEGL.framework/libEGL",

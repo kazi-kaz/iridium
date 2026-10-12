@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
                 *[str(support / name) for name in (
                     "MadeiraGamePreparation.swift", "MadeiraLaunchArguments.swift",
                     "IridiumSteamInstallScript.swift", "IridiumGamePrerequisites.swift",
-                    "MadeiraGameConfig.swift", "MadeiraSteamClient.swift")],
+                    "MadeiraGameConfig.swift", "MadeiraSteamClient.swift", "MadeiraSteamDock.swift")],
                 str(IOS / "MadeiraSupportTests/GamePrerequisitesCheck.swift"), "-o", str(binary),
             ], check=True, capture_output=True, timeout=90)
             subprocess.run([str(binary)], check=True, capture_output=True, timeout=15)
@@ -107,9 +107,11 @@ typedef int BOOL;
 #define ERROR_PROCESS_ABORTED 1067
 static wchar_t executable[128], command[128], directory[128];
 static const wchar_t *config;
+static int dock_status;
 static void status(const char *phase, UINT run, UINT runs, UINT process, UINT processes) {
     (void)run; (void)runs; (void)process; (void)processes;
-    assert(!strcmp(phase,"services") || !strcmp(phase,"installer") || !strcmp(phase,"game"));
+    assert(!strcmp(phase,"services") || !strcmp(phase,"installer") || !strcmp(phase,"game") || !strcmp(phase,"dock"));
+    if (!strcmp(phase,"dock")) dock_status++;
 }
 static DWORD codes[4], service_error, registry_error;
 static int calls, marked, game, cancelled_flag, bad_field, unconfirmed, cancel_after_process;
@@ -117,11 +119,12 @@ static BOOL cancelled(void) { return cancelled_flag; }
 static int gdi_ready;
 static void desktop_session_init(void) { gdi_ready = 1; }
 static DWORD services_start(void) { assert(gdi_ready); return service_error; }
-static UINT plan_runs = 2, plan_steam;
+static UINT plan_runs = 2, plan_steam, plan_dock;
 static UINT GetPrivateProfileIntW(const wchar_t *s, const wchar_t *k, UINT d, const wchar_t *p) {
     (void)s; (void)d; (void)p;
     if (!wcscmp(k,L"runs")) return plan_runs;
     if (!wcscmp(k,L"steam")) return plan_steam;
+    if (!wcscmp(k,L"dock")) return plan_dock;
     return !wcscmp(k,L"processes") ? 2 : 0;
 }
 static BOOL field(const wchar_t *s, const wchar_t *k, wchar_t *v) {
@@ -145,7 +148,7 @@ static void reset(void) {
     memset(codes,0,sizeof(codes)); calls=marked=game=cancelled_flag=bad_field=unconfirmed=gdi_ready=0;
     cancel_after_process=0;
     service_error=registry_error=0;
-    plan_runs=2; plan_steam=0; steam_error=0; steam_started=steam_stopped=installers_before_steam=0;
+    plan_runs=2; plan_steam=0; plan_dock=0; dock_status=0; steam_error=0; steam_started=steam_stopped=installers_before_steam=0;
 }
 int main(void) {
     wchar_t *argv[]={L"helper",L"plan"};
@@ -192,6 +195,21 @@ int main(void) {
     assert(wmain(2,argv)==ERROR_INVALID_DATA && !steam_started && !game);
     reset(); plan_runs=65; plan_steam=1;
     assert(wmain(2,argv)==ERROR_INVALID_DATA && !steam_started);
+    /* Madeira Dock stage: after every installer, the host runs instead of the game. */
+    reset(); plan_dock=1;
+    assert(wmain(2,argv)==0 && calls==4 && marked==2 && game==1 && dock_status==1 && !steam_started);
+    reset(); plan_dock=1; plan_runs=0;
+    assert(wmain(2,argv)==0 && !calls && game==1 && dock_status==1);
+    reset(); plan_dock=1; plan_steam=1;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !calls && !game && !steam_started);
+    reset(); plan_dock=2;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !calls && !game);
+    reset(); plan_dock=1; plan_runs=0; bad_field=1;
+    assert(wmain(2,argv)==ERROR_INVALID_DATA && !game && !dock_status);
+    reset(); plan_dock=1; cancel_after_process=4;
+    assert(wmain(2,argv)==ERROR_CANCELLED && !game && !dock_status);
+    reset(); plan_dock=1; codes[2]=5;
+    assert(wmain(2,argv)==5 && !game && !dock_status);
 }
 '''
         with tempfile.TemporaryDirectory() as temp:

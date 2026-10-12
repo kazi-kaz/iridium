@@ -1947,6 +1947,38 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    /// Whether Madeira Dock starts this game, and everything it needs from the app.
+    /// A failure is a message for the player; nil means the ordinary launch.
+    private func steamDockRequest(for game: GameRecord) -> Result<MadeiraSteamDock.Request?, MadeiraSteamDock.Failure> {
+        let flags = game.launchProfile.titleFlags
+        let appID = flags.first(where: { $0.hasPrefix("steam-app-id:") }).flatMap { Int($0.dropFirst("steam-app-id:".count)) }
+        let gameConfig = MadeiraGameConfig.locate(gameRoot: URL(fileURLWithPath: game.installPath))
+        let executable = URL(fileURLWithPath: buildLaunchSession(for: game, jitStatus: jitStatus).executablePath)
+        let decision = MadeiraSteamDock.decision(
+            gameConfig: gameConfig, executable: executable, mode: MadeiraSteamDock.mode,
+            steamDownload: flags.contains("steam-native-download") && appID.map(MadeiraSteamDock.validAppID) == true)
+        guard case .on(let reason) = decision, let appID else {
+            if case .off(let reason) = decision { RuntimeLogCapture.writeLine("[Launch] Madeira Dock off: \(reason).") }
+            return .success(nil)
+        }
+        RuntimeLogCapture.writeLine("[Launch] Madeira Dock on: \(reason).")
+        guard MadeiraSteamDock.bundledHost() != nil else {
+            return .failure(.init("This build does not include Madeira Dock. Build a new IPA, or set steam-dock = off in this game's iridium.cfg."))
+        }
+        guard MadeiraSteamDock.componentsReady() else {
+            return .failure(.init("Madeira Dock needs Valve's Steam client components (about \(MadeiraSteamDock.downloadBytes / 1_000_000) MB, downloaded once). Download them in Settings › Runtime › Steam Games, then tap Play again."))
+        }
+        guard let credential = SteamLibraryModel.shared.dockCredential() else {
+            return .failure(.init("Sign in to Steam in Iridium first. Madeira Dock starts the game with that Steam account."))
+        }
+        guard !SteamLibraryModel.shared.busy else {
+            return .failure(.init("Wait for the current Steam download or sign-in to finish, then tap Play again."))
+        }
+        return .success(MadeiraSteamDock.Request(appID: appID, name: game.title, account: credential.account,
+                                                 token: credential.token,
+                                                 launchOption: MadeiraSteamDock.launchOption(gameConfig: gameConfig)))
+    }
+
     private func madeiraLaunchIssue(for game: GameRecord) -> String? {
         MadeiraLaunchReadiness.issue(
             runtimeAvailable: madeiraRuntimeAvailable,
@@ -2219,6 +2251,14 @@ final class AppViewModel: ObservableObject {
         #if MADEIRA_RUNTIME
         if MadeiraRuntimeAdapter.enabled {
             if let issue = madeiraLaunchIssue(for: game) { activityStatusMessage = issue; return }
+            let steamDock: MadeiraSteamDock.Request?
+            switch steamDockRequest(for: game) {
+            case .failure(let issue):
+                activityStatusMessage = issue.message
+                return
+            case .success(let request):
+                steamDock = request
+            }
             UserDefaults.standard.set(game.title, forKey: "IridiumPendingMadeiraLaunchTitle")
             let id = UUID().uuidString
             switch RuntimePlayerPreparedSession.prepare(sessionIdentifier: id, graphicsStack: .dxmtViaMetal) {
@@ -2236,11 +2276,15 @@ final class AppViewModel: ObservableObject {
                     telemetryPath: "", state: .running, stateHistory: [.running],
                     statusSummary: "Preparing Madeira. No rendered frame yet.", launchedAt: Date())
                 let launch = launchSession(for: game)
+                // Valve's client signs in to the account for this launch; this app's own
+                // Steam connection ends first. The saved sign-in is kept.
+                if steamDock != nil { SteamLibraryModel.shared.releaseForDock() }
                 pendingMadeiraStart = (id, { [weak self] in
                     guard self?.activeRuntimePlayerSession?.sessionIdentifier == id else { return }
                     MadeiraRuntimeAdapter.start(executable: launch.executablePath, gameRoot: game.installPath, gameID: game.id, arguments: launch.arguments,
                         steamAppID: game.launchProfile.titleFlags.first(where: { $0.hasPrefix("steam-app-id:") }).map { String($0.dropFirst("steam-app-id:".count)) },
-                        nativeSteamInstall: game.launchProfile.titleFlags.contains("steam-native-download")) { [weak self] message in
+                        nativeSteamInstall: game.launchProfile.titleFlags.contains("steam-native-download"),
+                        steamDock: steamDock) { [weak self] message in
                         guard self?.activeRuntimePlayerSession?.sessionIdentifier == id else { return }
                         if message.contains("failed") || message.hasPrefix("Cannot") {
                             UserDefaults.standard.removeObject(forKey: "IridiumPendingMadeiraLaunchTitle")

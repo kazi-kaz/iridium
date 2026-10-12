@@ -211,6 +211,9 @@ try
     Check(!engine.Submit(new() { Action = "guard", Code = "12345" }), "unsolicited guard code rejected");
     Check(engine.TakeSecret() == null, "no fabricated session");
     Check(!engine.Read().SignedIn, "starts signed out");
+    Check(engine.Submit(new() { Action = "disconnect" }), "disconnect is accepted while idle");
+    Check(!engine.Read().SignedIn && engine.Read().Phase == "disconnected", "disconnect leaves no connection");
+    Check(!engine.Submit(new() { Action = "library" }), "library needs a new sign-in after disconnect");
 }
 finally { Directory.Delete(root, recursive: true); }
 

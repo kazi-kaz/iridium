@@ -352,6 +352,34 @@ final class SteamLibraryModel: ObservableObject {
         }
     }
 
+    /// The saved Steam session for Madeira Dock's one-use sign-in transfer. The
+    /// newest session (not yet confirmed by Keychain) wins. Nothing is logged.
+    func dockCredential() -> (account: String, token: String)? {
+        guard let data = pendingSession ?? (try? SteamKeychain.load()),
+              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let account = saved["accountName"] as? String, !account.isEmpty,
+              let token = saved["refreshToken"] as? String, !token.isEmpty else { return nil }
+        return (account, token)
+    }
+
+    /// Ends this app's own Steam connection before Valve's client signs in to the
+    /// same account for a Madeira Dock launch. The saved session is kept.
+    func releaseForDock() {
+        guard !busy else { return }
+        starting = true
+        operationTask = Task {
+            do {
+                try await send(["action": "disconnect"])
+                try await poll(expectedJob: nil)
+                RuntimeLogCapture.writeLine("[Steam] dock-handoff connection=closed")
+            } catch {
+                RuntimeLogCapture.writeLine("[Steam] dock-handoff connection=unchanged code=" + SteamSessionDiagnostic.localFailure(error))
+            }
+            starting = false
+            operationTask = nil
+        }
+    }
+
     func loadDetails(for game: SteamOwnedGame) {
         guard !busy else { return }
         perform(["action": "details", "appId": game.appId])

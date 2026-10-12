@@ -294,6 +294,7 @@ private struct RuntimeSettingsView: View {
             #if MADEIRA_RUNTIME
             if viewModel.usesMadeiraRuntime {
                 MenuNavigationLink("Display & Memory") { RuntimeLaunchPreferences() }
+                MenuNavigationLink("Steam Games") { SteamDockSettingsView() }
                 MadeiraSyncSettingsSection()
             }
             #endif
@@ -532,7 +533,7 @@ private struct RuntimeLaunchPreferences: View {
                      ? "No Steam client found. Copy the Steam folder from a Windows PC into Files › Iridium › SteamClient."
                      : "Steam client found in Files › Iridium › SteamClient.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("Starts your own Steam before a game protected by Steam DRM, waits for you to sign in, then starts the game. Other games launch as before. steam-client = on or off in a game's iridium.cfg overrides this for that game.")
+                Text("Starts your own Steam before a game protected by Steam DRM, waits for you to sign in, then starts the game. Other games launch as before. steam-client = on or off in a game's iridium.cfg overrides this for that game. For games downloaded in Iridium, Madeira Dock (Settings › Runtime › Steam Games) is used instead when it is on: it needs no Steam window and far less memory.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

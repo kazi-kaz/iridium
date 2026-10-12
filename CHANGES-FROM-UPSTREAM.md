@@ -296,6 +296,34 @@ processes inherit it (the PEB is cloned from the first process; the desktop
 comes from the parent), so programs started by a GDI-free helper faulted on a
 NULL GDI handle table and then found no desktop.
 
+### Madeira Dock for downloaded Steam games
+
+`testrepos/madeira-dock` is `willfaust/madeira-dock` at
+`72558e416a390f3669457930f09a389e54f49556`, unmodified (GPL-3.0-or-later with
+the Madeira Converter Exception, 125hz). `Scripts/build_controller_runtime.sh`
+builds its `dockhost.exe` for x86-64 with the pinned llvm-mingw, stripped, and
+writes `dock-notices.txt` (licence, exception, GPL text, LLVM and MinGW-w64
+runtime notices) beside it in `ControllerRuntime/x64`.
+
+`MadeiraSteamDock.swift` adapts Madeira's `MadeiraDock.swift`,
+`SteamRuntime.swift` and `AppManifestWriter.swift` at
+`48f976429c189f8396e23d251d8a82f43c705922` (125hz; the install-record writer
+derives from Jfishin's Madeira Steam client) and keeps GPL-3.0-or-later and the
+exception. Iridium's changes:
+Valve's client components are downloaded once into Application Support and
+cloned into each game environment; their ZIP reader uses Apple's Compression
+framework and a Swift CRC-32 instead of zlib; the install record comes from
+Iridium's own download receipt and links `steamapps/common/<folder>` to the
+game copy; discovery registry values left by an earlier Steam client are
+replaced instead of refused; offline start and the per-user executable step
+are not offered. The prerequisite helper (`prerequisites.c`) gains a `dock`
+stage that runs the host instead of the game after any installers.
+`SteamEngine.cs` gains a `disconnect` command so the app's own Steam
+connection ends before Valve's client signs in; the saved session stays.
+Valve's client and servers decide sign-in, ownership and launch; the game and
+its DRM are not modified, and no Valve binary is bundled. Checked by
+`ci/test_steam_dock.py` and the helper harness in `ci/test_game_prerequisites.py`.
+
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 
 `process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`

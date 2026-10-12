@@ -46,6 +46,16 @@ public sealed class SteamEngine(string root, Func<string, SteamCapacity>? measur
                 state = new();
                 return true;
             }
+            // Madeira Dock: Valve's own client signs in with the saved session for a
+            // game. End this connection first so the two clients do not compete for the
+            // account; the saved session stays, and the next app start reconnects.
+            if (command.Action == "disconnect")
+            {
+                connection?.Dispose(); connection = null;
+                state = state with { SignedIn = false, Phase = "disconnected", Games = [], Details = null,
+                    Message = "Steam is handed to the running game. Restart Iridium to use Steam downloads again." };
+                return true;
+            }
             if (command.Action is not ("signIn" or "qr" or "restore" or "library" or "details" or "install" or "cloud")) return false;
             if (command.Action is "library" or "details" or "install" or "cloud" && connection?.IsLoggedOn != true) return false;
             if (command.Action == "signIn" && (string.IsNullOrWhiteSpace(command.AccountName) || string.IsNullOrEmpty(command.Password))) return false;

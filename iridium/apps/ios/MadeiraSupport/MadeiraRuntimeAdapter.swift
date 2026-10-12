@@ -25,6 +25,9 @@ enum MadeiraRuntimeAdapter {
     private(set) static var desktopSession = false
     private static var steamClientSession = false
     private static let steamClientMessage = "Starting Steam. Sign in when its window appears; the game starts after sign-in."
+    private static var steamDockSession = false
+    private static var dockReportFields: [String: String] = [:]
+    private static let steamDockMessage = "Starting Steam through Madeira Dock. Valve's Steam client signs in and starts the game…"
 
     // This runs on the boot worker. The registry loader changes the process
     // directory, so Wine must not start until readiness is published. Allow
@@ -48,6 +51,7 @@ enum MadeiraRuntimeAdapter {
                       arguments: [String] = [],
                       steamAppID: String? = nil,
                       nativeSteamInstall: Bool = false,
+                      steamDock: MadeiraSteamDock.Request? = nil,
                       report: @escaping (String) -> Void,
                       fail: @escaping (String) -> Void,
                       exited: @escaping () -> Void = {}) {
@@ -107,6 +111,8 @@ enum MadeiraRuntimeAdapter {
         } else {
             unsetenv(MadeiraGameConfig.environmentKey)
         }
+        // A sign-in transfer left by an earlier, interrupted launch is never reused.
+        MadeiraSteamDock.cleanup()
         jit_install_trap_handler()
         _ = LogStore.shared
         RuntimeLogCapture.writeLine("[Launch] Waiting for JIT permission.")
@@ -115,6 +121,7 @@ enum MadeiraRuntimeAdapter {
             DispatchQueue.main.async {
                 guard launchID == token, !failureReported else { return }
                 failureReported = true
+                MadeiraSteamDock.cleanup()
                 monitorTask?.cancel()
                 MadeiraController.stop()
                 MadeiraHardwareInput.acceptingInput = false
@@ -155,9 +162,41 @@ enum MadeiraRuntimeAdapter {
                             windowsExecutable: path, registeredAppID: steamAppID)
                         try MadeiraControllerInstall.install(prefix: prefix, windowsExecutable: path)
                         let mediaProbe = UserDefaults.standard.string(forKey: "IridiumMadeiraTest") == "media"
+                        // Madeira Dock: Valve's own Steam client, hosted without its interface,
+                        // signs in with the player's Iridium Steam session and starts the game.
+                        var dockStage: MadeiraSteamDock.Stage?
+                        for key in MadeiraSteamDock.environmentKeys { unsetenv(key) }
+                        if let steamDock, !mediaProbe {
+                            RuntimeLogCapture.writeLine("[Launch] Preparing Madeira Dock for Steam app \(steamDock.appID).")
+                            do {
+                                guard let store = MadeiraSteamDock.componentStore(),
+                                      let host = MadeiraSteamDock.bundledHost() else {
+                                    throw MadeiraSteamDock.Failure("This build does not include Madeira Dock.")
+                                }
+                                let steamID = try MadeiraSteamDock.subject(steamDock.token)
+                                let stage = try MadeiraSteamDock.preparePrefix(
+                                    prefix: prefix, appID: steamDock.appID, name: steamDock.name,
+                                    receipt: MadeiraSteamDock.receipt(gameRoot: URL(fileURLWithPath: gameRoot)),
+                                    steamID: steamID, store: store, host: host)
+                                let transfer = try MadeiraSteamDock.writeHandoff(steamDock, steamID: steamID)
+                                for (key, value) in MadeiraSteamDock.environment(stage: stage, appID: steamDock.appID,
+                                                                                 launchOption: steamDock.launchOption,
+                                                                                 transfer: transfer) {
+                                    if let value { setenv(key, value, 1) } else { unsetenv(key) }
+                                }
+                                // Valve's client gives the game its own Steam identity.
+                                for key in ["SteamAppId", "SteamGameId", "SteamAppPath"] { unsetenv(key) }
+                                dockStage = stage
+                                RuntimeLogCapture.writeLine("[Launch] Madeira Dock ready: Steam library folder \(stage.installPath), launch option \(steamDock.launchOption).")
+                            } catch {
+                                MadeiraSteamDock.cleanup()
+                                failure(error.localizedDescription)
+                                return
+                            }
+                        }
                         // Experimental Steam client mode (Settings or the game's iridium.cfg).
                         var steamClient: MadeiraSteamClient.Launch?
-                        if !mediaProbe {
+                        if !mediaProbe && dockStage == nil {
                             switch MadeiraSteamClient.request(gameConfig: gameConfig,
                                                               executable: URL(fileURLWithPath: executable),
                                                               enabled: MadeiraSteamClient.isEnabled) {
@@ -183,7 +222,7 @@ enum MadeiraRuntimeAdapter {
                             appID: steamAppID.flatMap(Int.init),
                             sharedRoots: IridiumGamePrerequisites.sharedRoots(
                                 gameRoot: URL(fileURLWithPath: gameRoot), nativeSteamInstall: nativeSteamInstall),
-                            steam: steamClient)
+                            steam: steamClient, dock: dockStage)
                         guard current() else { return }
                         RuntimeLogCapture.writeLine("[Launch] Game files and controller bridge are ready.")
                         DispatchQueue.main.sync {
@@ -191,6 +230,8 @@ enum MadeiraRuntimeAdapter {
                             prerequisitePrefix = prerequisites == nil ? nil : prefix
                             desktopSession = prerequisites != nil
                             steamClientSession = prerequisites?.steamClient == true
+                            steamDockSession = prerequisites?.steamDock == true
+                            dockReportFields = [:]
                             MadeiraController.start(
                                 prefix: prefix,
                                 touchControlsEnabled: TouchControllerLayoutStore.isEnabled(for: gameID),
@@ -221,7 +262,9 @@ enum MadeiraRuntimeAdapter {
                             }
                             DispatchQueue.main.async {
                                 guard launchID == token, !launchCancelled else { return }
-                                report(prerequisites.steamClient && prerequisites.installerCount == 0 ? steamClientMessage
+                                report(prerequisites.installerCount > 0 ? "Installing game prerequisites. The game will start next."
+                                       : prerequisites.steamDock ? steamDockMessage
+                                       : prerequisites.steamClient ? steamClientMessage
                                        : "Installing game prerequisites. The game will start next.")
                             }
                         } else { setenv("MADEIRA_EXE", path, 1) }
@@ -310,6 +353,7 @@ enum MadeiraRuntimeAdapter {
                     if launchCancelled { requestGuestClose() }
                     else if !failureReported {
                         report(prerequisitePrefix == nil ? "Madeira started; waiting for rendered frames."
+                               : steamDockSession ? steamDockMessage
                                : steamClientSession ? steamClientMessage
                                : "Installing game prerequisites. The game will start next.")
                     }
@@ -320,10 +364,13 @@ enum MadeiraRuntimeAdapter {
                             do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
                             guard launchID == token else { return }
                             if let prefix = prerequisitePrefix {
-                                let status = await Task.detached(priority: .utility) {
-                                    IridiumGamePrerequisites.status(prefix: prefix)
+                                let dock = steamDockSession
+                                let (status, dockReport) = await Task.detached(priority: .utility) {
+                                    let dockReport = dock ? MadeiraSteamDock.readReport(prefix: prefix) : nil
+                                    return (dockReport?.progress ?? IridiumGamePrerequisites.status(prefix: prefix), dockReport)
                                 }.value
                                 guard launchID == token else { return }
+                                if let dockReport { logDockReport(dockReport) }
                                 // Close cancels status reporting, not terminal observation:
                                 // the guest may exit after the bounded close wait times out.
                                 if !launchCancelled, let status, status != lastInstallerStatus {
@@ -338,7 +385,13 @@ enum MadeiraRuntimeAdapter {
                         combatProfile?.stop()
                         combatProfile = nil
                         let code = wine_process_exit_code()
+                        MadeiraSteamDock.cleanup()
                         if code != 0 {
+                            if steamDockSession, let prefix = prerequisitePrefix,
+                               let dockReport = MadeiraSteamDock.readReport(prefix: prefix) {
+                                logDockReport(dockReport)
+                                if let message = dockReport.failure { failure(message); return }
+                            }
                             failure("Launch stopped with exit code \(code). Check View Log for the failed step.")
                             return
                         }
@@ -449,6 +502,16 @@ enum MadeiraRuntimeAdapter {
             RuntimeLogCapture.writeLine("[Launch] Guest process and wineserver stopped after close request.")
             completion(true)
         }
+    }
+
+    /// Logs Madeira Dock's numeric report fields as they change. The report never
+    /// holds tokens, account names, SteamIDs or paths.
+    @MainActor
+    private static func logDockReport(_ report: MadeiraSteamDock.Report) {
+        for key in report.fields.keys.sorted() where report.fields[key] != dockReportFields[key] {
+            RuntimeLogCapture.writeLine("[dock-report] \(key)=\(report.fields[key] ?? "")")
+        }
+        dockReportFields = report.fields
     }
 
     private static let controllerQueue = DispatchQueue(label: "iridium.madeira.keys")

@@ -5,6 +5,9 @@
  * Iridium: run only included prerequisites, then the selected game. No Dock client.
  * Optional Steam client stage (experimental): the player's own Steam runs and is
  * signed in before the game starts, then is closed when the game exits.
+ * Optional Madeira Dock stage: instead of the game, run dockhost.exe, which loads
+ * Valve's own Steam client, signs in and asks it to start the game. The host
+ * returns when the game has ended (testrepos/madeira-dock).
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -368,7 +371,9 @@ int wmain(int argc, wchar_t **argv)
     config = argv[1];
     UINT runs = GetPrivateProfileIntW(L"plan", L"runs", 0, config);
     UINT use_steam = GetPrivateProfileIntW(L"plan", L"steam", 0, config);
-    if (runs > 64 || use_steam > 1 || (!runs && !use_steam)) return ERROR_INVALID_DATA;
+    UINT use_dock = GetPrivateProfileIntW(L"plan", L"dock", 0, config);
+    if (runs > 64 || use_steam > 1 || use_dock > 1 || (use_steam && use_dock)
+        || (!runs && !use_steam && !use_dock)) return ERROR_INVALID_DATA;
     desktop_session_init();
     status("services", 0, 0, 0, 0);
     DWORD code = services_start();
@@ -398,6 +403,17 @@ int wmain(int argc, wchar_t **argv)
         if (code) return code;
     }
     if (cancelled()) return ERROR_CANCELLED;
+    if (use_dock) {
+        /* Valve's client starts the game from the host; it inherits this
+         * helper's desktop and environment (the host's settings). */
+        if (!field(L"dock", L"executable", executable) || !field(L"dock", L"command", command)
+            || !field(L"dock", L"directory", directory)) return ERROR_INVALID_DATA;
+        fprintf(stderr, "[Prerequisites] Complete. Starting Madeira Dock.\n");
+        status("dock", 0, 0, 0, 0);
+        code = run_process(INFINITE, NULL);
+        fprintf(stderr, "[Prerequisites] Madeira Dock exited: %lu\n", code);
+        return code;
+    }
     if (use_steam) {
         code = steam_start();
         fprintf(stderr, "[Prerequisites] Steam client: %lu\n", code);

@@ -9,6 +9,7 @@ enum IridiumGamePrerequisites {
         let arguments: [String]
         let installerCount: Int
         let steamClient: Bool
+        var steamDock = false
     }
 
     // Install Wine's bundled fonts without replacing a user's existing fonts.
@@ -45,6 +46,7 @@ enum IridiumGamePrerequisites {
         if fields == ["steam"] { return "Starting Steam. The first start can take several minutes…" }
         if fields == ["steam-login"] { return "Sign in to Steam in its window. The game starts after sign-in." }
         if fields == ["steam-exit"] { return "Closing Steam…" }
+        if fields == ["dock"] { return "Starting Steam through Madeira Dock…" }
         guard fields.count == 5, fields[0] == "installer",
               let run = Int(fields[1]), let runs = Int(fields[2]),
               let process = Int(fields[3]), let processes = Int(fields[4]),
@@ -107,9 +109,13 @@ enum IridiumGamePrerequisites {
 
     // Called by the existing boot worker, before wineserver owns the registry.
     // With `steam`, the plan also starts that Steam client before the game.
+    // With `dock`, the plan runs Madeira Dock instead of the game: Valve's client
+    // starts the game itself once it has signed in and confirmed the license.
     static func prepare(prefix: URL, executable: String, arguments: [String], appID: Int?,
                         sharedRoots: [URL] = [], steam: MadeiraSteamClient.Launch? = nil,
+                        dock: MadeiraSteamDock.Stage? = nil,
                         resources: Bundle = .main) throws -> Launch? {
+        guard steam == nil || dock == nil else { throw failure("Steam Client and Madeira Dock cannot both start this game.") }
         let fm = FileManager.default
         let drive = prefix.appendingPathComponent("drive_c", isDirectory: true)
         let game = drive.appendingPathComponent("IridiumGame", isDirectory: true)
@@ -140,7 +146,7 @@ enum IridiumGamePrerequisites {
             found += pending.filter { !found.contains($0) }
             if index > 0 { sharedToCopy.append((root, drive.appendingPathComponent("IridiumPrerequisites/shared\(index)"))) }
         }
-        guard !found.isEmpty || steam != nil else { return nil } // Preserve the ordinary launch path.
+        guard !found.isEmpty || steam != nil || dock != nil else { return nil } // Preserve the ordinary launch path.
         guard found.count <= 64 else { throw failure("This game has too many prerequisite installer steps.") }
         guard let helper = resources.url(forResource: "iridium-prerequisites", withExtension: "exe",
                                          subdirectory: "ControllerRuntime/aarch64"),
@@ -177,12 +183,12 @@ enum IridiumGamePrerequisites {
         try Data(contentsOf: helper).write(to: helperTarget, options: .atomic)
         let plan = folder.appendingPathComponent("installers.ini")
         try requireUnlinkedPath(plan, under: prefix)
-        let text = try configuration(found, executable: executable, arguments: arguments, steam: steam)
+        let text = try configuration(found, executable: executable, arguments: arguments, steam: steam, dock: dock)
         guard let encoded = text.data(using: .utf16LittleEndian) else { throw CocoaError(.fileReadCorruptFile) }
         try (Data([0xff, 0xfe]) + encoded).write(to: plan, options: .atomic)
         return Launch(executable: "C:\\IridiumPrerequisites\\iridium-prerequisites.exe",
                       arguments: ["C:\\IridiumPrerequisites\\installers.ini"], installerCount: Set(found.map(\.run)).count,
-                      steamClient: steam != nil)
+                      steamClient: steam != nil, steamDock: dock != nil)
     }
 
     // Native downloads use SteamGames/<appid>/<variant>/content. Also accept the
@@ -205,7 +211,7 @@ enum IridiumGamePrerequisites {
     }
 
     static func configuration(_ processes: [IridiumInstallProcess], executable: String, arguments: [String],
-                              steam: MadeiraSteamClient.Launch? = nil) throws -> String {
+                              steam: MadeiraSteamClient.Launch? = nil, dock: MadeiraSteamDock.Stage? = nil) throws -> String {
         var runs: [IridiumInstallRun] = []
         for process in processes where !runs.contains(process.run) { runs.append(process.run) }
         func value(_ text: String) throws -> String {
@@ -215,12 +221,17 @@ enum IridiumGamePrerequisites {
             return "x" + text + "x"
         }
         func directory(_ path: String) -> String { String(path[..<(path.lastIndex(of: "\\") ?? path.endIndex)]) }
-        var lines = ["[plan]", "runs=\(runs.count)", "steam=\(steam == nil ? 0 : 1)", "[game]", "executable=\(try value(executable))",
+        var lines = ["[plan]", "runs=\(runs.count)", "steam=\(steam == nil ? 0 : 1)", "dock=\(dock == nil ? 0 : 1)",
+                     "[game]", "executable=\(try value(executable))",
                      "command=\(try value(MadeiraLaunchArguments.windowsCommandLine(executable: executable, arguments: arguments)))",
                      "directory=\(try value(directory(executable)))"]
         if let steam {
             lines += ["[steam]", "executable=\(try value(steam.executable))", "command=\(try value(steam.command))",
                       "directory=\(try value(steam.directory))"]
+        }
+        if let dock {
+            lines += ["[dock]", "executable=\(try value(dock.executable))", "command=\(try value(dock.command))",
+                      "directory=\(try value(dock.directory))"]
         }
         for (index, run) in runs.enumerated() {
             let selected = processes.filter { $0.run == run }
