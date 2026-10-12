@@ -42,6 +42,11 @@ distributes under **LGPL-2.1-or-later**. This branch keeps that licence.
     fastsync for events and semaphores, pull request #16); `d770df01ae7`
     (ntdll ARM64EC: opt-in guard against a self-deadlock in the loader's
     image-map notification, pull request #17).
+  - opengl32: OpenGL ES contexts for Madeira's winios WGL driver
+    (`dlls/opengl32/unix_wgl.c`) and the fixed low image base limited to x86
+    builds (`dlls/opengl32/Makefile.in`). Author: Connor Gow, written with AI
+    assistance, 2026-09-26; from c-gow/Madeira `patches/wine-opengl-winios.patch`
+    at 40276fe, carried into Iridium on 2026-10-12.
 
 The LGPL permits combining this library with proprietary components (such
 as Apple's Metal Shader Converter) subject to LGPL-2.1 section 6; see the

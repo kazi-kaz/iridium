@@ -30,6 +30,8 @@ int wineserver_is_running(void);
 int wineserver_is_ready(void);
 int madeira_request_guest_close(void);
 uint64_t madeira_get_present_count(void);
+// DXMT presents plus OpenGL presents (Winios/WiniosGL.m)
+uint64_t madeira_frame_count(void);
 uint64_t winios_surface_present_count(void);
 void winios_compositor_attach(UIView * _Nullable);
 void winios_set_compositor_frame(double, double, double, double);

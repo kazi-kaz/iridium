@@ -989,7 +989,7 @@ private final class RuntimePlayerHostView: UIView {
     private func renderFrameIfNeeded() {
         #if MADEIRA_RUNTIME
         if MadeiraRuntimeAdapter.enabled {
-            let count = madeira_get_present_count()
+            let count = madeira_frame_count()
             let now = CACurrentMediaTime()
             if let previous = lastMadeiraPresentCount {
                 if count != previous {

@@ -21,6 +21,7 @@ targets:
           - Winios/Winios.m
           - Winios/WiniosGamepad.c
           - Winios/WiniosCursor.c
+          - Winios/WiniosGL.m
       - path: MadeiraSupport/MadeiraNative.h
         headerVisibility: public
       - path: MadeiraSupport/NativePool.c

@@ -129,7 +129,7 @@ class LaunchPresentationTests(unittest.TestCase):
         self.assertIn("time.isFinite, time > 0", callback)
         self.assertIn("self.acceptsPresentedFrames", callback)
         poll = source.split("private func renderFrameIfNeeded()", 1)[1].split("#endif", 1)[0]
-        self.assertIn("madeira_get_present_count()", poll) # Keep runtime stall diagnostics.
+        self.assertIn("madeira_frame_count()", poll) # Keep runtime stall diagnostics (D3D and GL frames).
         self.assertNotIn("onFirstFramePresented()", poll)
         self.assertNotIn("onFrameCount(count)", poll)
         self.assertIn("acceptsPresentedFrames = false", source.split("    func stop() {", 1)[1])

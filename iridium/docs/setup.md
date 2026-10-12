@@ -113,6 +113,16 @@ file, are appended to the controller bridge's XInput overrides instead of
 replacing them; an empty value clears them. The file is not copied into the
 isolated game copy.
 
+### OpenGL games (experimental)
+
+64-bit games that draw with OpenGL ES-compatible code (SDL and LOVE games, many
+newer engines) can now open an OpenGL window. Contexts are Apple's OpenGL ES 3.0,
+so games that need desktop OpenGL (fixed-function OpenGL 1.x, compatibility
+profiles, OpenGL 3.3+ core) still fail at their own version or extension check.
+32-bit OpenGL games are not supported yet. `env.MADEIRA_NO_GL = 1` in a game's
+`iridium.cfg` turns OpenGL off for that game. Look for `[winios-gl]` lines in
+the log.
+
 ### Steam games through Madeira Dock (experimental)
 
 For games downloaded with Iridium's Steam tab, Madeira Dock runs Valve's own

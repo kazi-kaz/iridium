@@ -140,6 +140,9 @@ struct context
     const char **extension_array;  /* array of supported extensions */
     size_t extension_count;        /* size of supported extensions */
     BOOL use_pinned_memory;        /* use GL_AMD_pinned_memory to emulate persistent maps */
+#ifdef WINE_IOS
+    BOOL is_gles;                  /* host context is OpenGL ES (Madeira winios driver) */
+#endif
 
     /* semi-stub state tracker for wglCopyContext */
     GLbitfield used;                            /* context state used bits */
@@ -499,10 +502,51 @@ static const char *legacy_extensions[] =
     NULL,
 };
 
+#ifdef WINE_IOS
+/* GLES extensions whose entry points exist only in the GLES registry
+ * (OES/APPLE/EXT-suffixed names), so opengl32 has no thunks for them and
+ * wglGetProcAddress cannot return them. Advertising them makes loaders such as
+ * glad set the extension flag with NULL function pointers. Hiding them sends
+ * apps down the core OpenGL ES 3.0 paths, which opengl32 does thunk. */
+static const char *const gles_unthunked_extensions[] =
+{
+    "GL_APPLE_copy_texture_levels",
+    "GL_APPLE_framebuffer_multisample",
+    "GL_APPLE_sync",
+    "GL_EXT_discard_framebuffer",
+    "GL_EXT_disjoint_timer_query",
+    "GL_EXT_draw_buffers",
+    "GL_EXT_instanced_arrays",
+    "GL_EXT_map_buffer_range",
+    "GL_EXT_multisampled_render_to_texture",
+    "GL_EXT_occlusion_query_boolean",
+    "GL_EXT_robustness",
+    "GL_EXT_separate_shader_objects",
+    "GL_KHR_debug",
+    "GL_OES_EGL_image",
+    "GL_OES_EGL_image_external",
+    "GL_OES_get_program_binary",
+    "GL_OES_mapbuffer",
+    "GL_OES_texture_3D",
+    "GL_OES_vertex_array_object",
+};
+
+static BOOL is_gles_unthunked_extension( const char *name )
+{
+    for (int i = 0; i < ARRAY_SIZE(gles_unthunked_extensions); i++)
+        if (!strcmp( gles_unthunked_extensions[i], name )) return TRUE;
+    return FALSE;
+}
+#endif
+
 static const char *parse_gl_version( const char *gl_version, int *major, int *minor )
 {
     const char *ptr = gl_version;
 
+#ifdef WINE_IOS
+    /* GLES contexts report "OpenGL ES major.minor ..." */
+    if (!strncmp( ptr, "OpenGL ES ", 10 )) ptr += 10;
+#endif
     *major = atoi( ptr );
     if (*major <= 0)
         ERR( "Invalid OpenGL major version %d.\n", *major );
@@ -964,6 +1008,14 @@ PROC wrap_wglGetProcAddress( TEB *teb, LPCSTR name )
     {
         void *driver_func = funcs->p_wglGetProcAddress( name );
 
+#ifdef WINE_IOS
+        /* GLES versions do not map onto the GL_VERSION_x_y gates (ES 3.0 has
+         * functions from desktop 3.0 through 4.3). The winios driver resolves
+         * names with dlsym, so a non-NULL result means the entry point exists. */
+        if (ctx->is_gles && driver_func)
+            TRACE( "%s provided by the OpenGL ES driver\n", name );
+        else
+#endif
         if (!is_any_extension_supported( ctx, found->extension ))
         {
             WARN( "Extension %s required for %s not supported\n", found->extension, name );
@@ -1204,6 +1256,10 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
     if (version) rest = parse_gl_version( version, &ctx->major_version, &ctx->minor_version );
     if (!ctx->major_version) ctx->major_version = 1;
     TRACE( "context %p version %d.%d\n", ctx, ctx->major_version, ctx->minor_version );
+#ifdef WINE_IOS
+    /* Room for the ES compatibility extensions appended below. */
+    if ((ctx->is_gles = version && !strncmp( version, "OpenGL ES", 9 ))) size += 2;
+#endif
 
     if (funcs->p_glImportMemoryWin32HandleEXT) size++;
     if (funcs->p_glImportSemaphoreWin32HandleEXT) size++;
@@ -1266,6 +1322,25 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
 
     if (funcs->p_glImportMemoryWin32HandleEXT) extensions[count++] = "GL_EXT_memory_object_win32";
     if (funcs->p_glImportSemaphoreWin32HandleEXT) extensions[count++] = "GL_EXT_semaphore_win32";
+#ifdef WINE_IOS
+    if (ctx->is_gles)
+    {
+        for (i = 0, j = 0; i < count; i++)
+        {
+            if (is_gles_unthunked_extension( extensions[i] )) TRACE( "-- %s (GLES-only entry points)\n", extensions[i] );
+            else extensions[j++] = extensions[i];
+        }
+        count = j;
+    }
+    /* A GLES context provides the ES entry points these extensions describe on
+     * desktop GL. SDL reads GL_ARB_ES3_compatibility to decide that WGL (rather
+     * than ANGLE's EGL) can create an OpenGL ES 3 context. */
+    if (ctx->is_gles)
+    {
+        extensions[count++] = "GL_ARB_ES2_compatibility";
+        if (ctx->major_version >= 3) extensions[count++] = "GL_ARB_ES3_compatibility";
+    }
+#endif
     for (i = 0; legacy_extensions[i]; i++) extensions[count++] = legacy_extensions[i];
     qsort( extensions, count, sizeof(*extensions), string_array_cmp );
     ctx->extension_array = extensions;

@@ -2302,7 +2302,7 @@ final class AppViewModel: ObservableObject {
                         RuntimeLogCapture.writeLine("[Launch] \(message)")
                     } exited: { [weak self] in
                         guard let self, self.activeRuntimePlayerSession?.sessionIdentifier == id else { return }
-                        let presented = madeira_get_present_count() > 0
+                        let presented = madeira_frame_count() > 0
                         self.madeiraShutdownUnconfirmed = false
                         self.activeRuntimePlayerSession?.state = presented ? .completed : .failed
                         self.activeRuntimePlayerSession?.stateHistory.append(presented ? .completed : .failed)

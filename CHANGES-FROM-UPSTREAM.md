@@ -340,6 +340,36 @@ entry in FEX. An image live again at that PE address is left alone.
 `MADEIRA_NO_FEX_ALIAS_RETIRE=1` turns it off. Checked by
 `build/host-tests/check-fex-alias-retire.py`. No FEX source changes.
 
+## OpenGL ES behind WGL (from c-gow/Madeira)
+
+Ported from Connor Gow's `c-gow/Madeira` (`opengl-test-7`, a144444; commits
+40276fe, 69c5f8a, 3b40fcc), step 1 of the OpenGL work: the OpenGL ES backend
+only, for 64-bit programs.
+
+- `build/win32u-unix/opengl_ios.c` (LGPL-2.1-or-later) and
+  `app/Madeira/Winios/WiniosGL.m` (GPL-3.0-or-later with the Madeira Converter
+  Exception), unmodified: the winios WGL driver. Contexts are Apple OpenGL ES 3.0
+  (EAGL) contexts; each window is an FBO that is blitted into an IOSurface and
+  drawn onto the window's CAMetalLayer. `driver_ios.c` registers it;
+  `MADEIRA_NO_GL=1` restores the GL-absent behavior. The file also contains the
+  fork's desktop-GL (Zink) backend, which stays unused until Mesa and MoltenVK
+  are bundled (`gl/` in the app).
+- `wine/dlls/opengl32`: the fork's GLES handling in `unix_wgl.c` and a normal
+  image base for the ARM64EC `opengl32.dll` (`Makefile.in`).
+- `build/ntdll-unix`: opengl32's unix side (`unix_wgl.c`, `unix_thunks.c`) is
+  linked and bound for 64-bit processes; 32-bit processes keep the stub table
+  until the fork's regenerated WoW64 thunks are carried. The x18 patcher also
+  rewrites `str/stur/stp x18` in `opengl32.dll` only (its thunks store
+  NtCurrentTeb() in every call). Checked by
+  `build/host-tests/check-x18-store.py`.
+- `IOSDisplayShim.m` shares the per-window layer lookup with the GL presenter;
+  `WineProcessBridge.m` chooses the backend (`gl-backend` in madeira.cfg, else
+  zink when bundled, else gles). Iridium's frame checks use
+  `madeira_frame_count()` (D3D plus GL presents).
+
+Desktop-only OpenGL programs (fixed function, compatibility profiles) still
+fail on this backend: OpenGL ES has no such functions.
+
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 
 `process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`
