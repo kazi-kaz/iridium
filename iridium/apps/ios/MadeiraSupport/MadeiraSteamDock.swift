@@ -4,7 +4,9 @@
 // the install-record writer is derived from Jfishin's Madeira Steam client.
 // Madeira Converter Exception: see testrepos/Madeira/LICENSE-EXCEPTION.md.
 import Foundation
+#if canImport(Compression)
 import Compression
+#endif
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -200,6 +202,7 @@ enum MadeiraSteamDock {
                 try need(compressed > 0)
                 // One spare byte: a stream that inflates past `size` fills it and fails.
                 decoded = Data(count: size + 1)
+                #if canImport(Compression)
                 let written = decoded.withUnsafeMutableBytes { output in
                     encoded.withUnsafeBytes { input in
                         compression_decode_buffer(output.bindMemory(to: UInt8.self).baseAddress!, size + 1,
@@ -207,6 +210,11 @@ enum MadeiraSteamDock {
                                                   nil, COMPRESSION_ZLIB)
                     }
                 }
+                #else
+                // Apple's Compression is absent where the Linux source checks compile this
+                // file; deflated members are refused there.
+                let written = 0
+                #endif
                 try need(written == size)
                 decoded.count = size
             }
