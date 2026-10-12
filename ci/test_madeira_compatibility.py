@@ -385,8 +385,10 @@ UnderTest.check()
 
     @unittest.skipUnless(shutil.which("swiftc"), "Swift compiler unavailable")
     def test_shared_stub_and_actual_adapter_readiness_lifecycle(self):
-        subprocess.run(["python3", str(ROOT / "iridium/apps/ios/MadeiraSupportTests/ReviewRegressionCheck.py"),
-                        "--group", "lifecycle"], check=True, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(["python3", str(ROOT / "iridium/apps/ios/MadeiraSupportTests/ReviewRegressionCheck.py"),
+                                 "--group", "lifecycle"], capture_output=True, text=True, timeout=120)
+        # Show the compiler's or the failing case's output instead of a bare exit status.
+        self.assertEqual(result.returncode, 0, (result.stdout + result.stderr)[-6000:])
 
 
 if __name__ == "__main__":
