@@ -264,7 +264,12 @@ audit uploads succeed, preserving the archives used to link the app.
 `IridiumSteamInstallScript.swift` adapts Madeira's `DockInstallers.swift` at
 `40d5e74848e4ee7060e879c07ef74487d9dc8cec`. It preserves repeated installer
 sections and adds a prefix-local default key for manual imports. Invalid pending
-commands fail before any installer group is recorded as complete.
+commands fail before any installer group is recorded as complete. KeyValues
+platform conditionals (`[$WIN32]`, `[!$OSX]`) are evaluated for Windows instead of
+being read as keys. A script that still cannot be used skips only its own
+installers: the launch continues and the log names the script and the rejected
+entry (`[Launch] Skipped prerequisite script`). Before this, one such script in the
+game folder or Steamworks Shared stopped the game from starting.
 
 `prerequisites.c` adapts Wine service-manager startup from `willfaust/madeira-dock`
 `src/scm.c` at `3cadfbea700e4da4b04e331dd7ef1ba633dfacef`. It runs included EXE

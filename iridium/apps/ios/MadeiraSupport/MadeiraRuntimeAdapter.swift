@@ -222,7 +222,10 @@ enum MadeiraRuntimeAdapter {
                             appID: steamAppID.flatMap(Int.init),
                             sharedRoots: IridiumGamePrerequisites.sharedRoots(
                                 gameRoot: URL(fileURLWithPath: gameRoot), nativeSteamInstall: nativeSteamInstall),
-                            steam: steamClient, dock: dockStage)
+                            steam: steamClient, dock: dockStage,
+                            skipped: { script, error in
+                                RuntimeLogCapture.writeLine("[Launch] Skipped prerequisite script (\(script)): \(error.localizedDescription)")
+                            })
                         guard current() else { return }
                         RuntimeLogCapture.writeLine("[Launch] Game files and controller bridge are ready.")
                         DispatchQueue.main.sync {

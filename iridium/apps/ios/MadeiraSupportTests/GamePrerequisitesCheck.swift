@@ -62,6 +62,25 @@ import Foundation
             script: Data(String(decoding: noKey, as: UTF8.self).replacingOccurrences(of: "Setup.exe", with: "Setup.bat").utf8),
             installDir: "C:\\IridiumGame", completed: { _ in true })
         precondition(completedUnsupported.isEmpty)
+        // KeyValues conditionals: a value for another platform is dropped, not misread as a key.
+        let conditional = Data(#"""
+        "InstallScript" { "Run Process" { "Cond" [$WIN32] {
+          "Process 1" "%INSTALLDIR%\\Setup.exe" [$WIN32]
+          "Command 1" "/quiet"
+          "Command 1" "/mac" [$OSX]
+          "Process 2" "%INSTALLDIR%\\Mac.exe" [$OSX||$LINUX]
+        } } }
+        """#.utf8)
+        let conditioned = try IridiumSteamInstallScript.processes(script: conditional, installDir: "C:\\IridiumGame", appID: 42)
+        precondition(conditioned.count == 1 && conditioned[0].executable.hasSuffix("Setup.exe") && conditioned[0].arguments == "/quiet")
+        precondition(IridiumSteamInstallScript.windowsCondition("[!$X360]") && !IridiumSteamInstallScript.windowsCondition("[$WIN64&&$OSX]"))
+        do {
+            _ = try IridiumSteamInstallScript.processes(script: Data(String(decoding: noKey, as: UTF8.self)
+                .replacingOccurrences(of: "Setup.exe", with: "Setup.bat").utf8), installDir: "C:\\IridiumGame")
+            preconditionFailure("A batch file was accepted")
+        } catch {
+            precondition(error.localizedDescription.contains("Setup.bat"), "the failure names what was rejected")
+        }
         let text = try IridiumGamePrerequisites.configuration(processes, executable: "C:\\IridiumGame\\Game.exe",
             arguments: ["", "two words", "quote\"here", "C:\\end\\", "&not-a-shell", "雪"])
         precondition(text.contains("runs=2\r\n") && text.contains("processes=3\r\n"))
@@ -149,6 +168,17 @@ import Foundation
         let sharedLaunch = try IridiumGamePrerequisites.prepare(prefix: prefix, executable: "C:\\IridiumGame\\Game.exe",
             arguments: [], appID: 42, sharedRoots: sharedRoots, resources: resources)
         precondition(sharedLaunch?.installerCount == 1)
+        // An unreadable shared script skips its own installers and is reported; the launch goes on.
+        let badShared = shared.appendingPathComponent("_CommonRedist/Other/installscript.vdf")
+        try fm.createDirectory(at: badShared.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(String(decoding: noKey, as: UTF8.self).replacingOccurrences(of: "Setup.exe", with: "Setup.bat").utf8).write(to: badShared)
+        var skippedScripts: [String] = []
+        let partialLaunch = try IridiumGamePrerequisites.prepare(prefix: prefix, executable: "C:\\IridiumGame\\Game.exe",
+            arguments: [], appID: 42, sharedRoots: sharedRoots, resources: resources,
+            skipped: { name, _ in skippedScripts.append(name) })
+        precondition(partialLaunch?.installerCount == 1)
+        precondition(skippedScripts == ["Steamworks Shared: _CommonRedist/Other/installscript.vdf"], "\(skippedScripts)")
+        try fm.removeItem(at: badShared)
         precondition(IridiumGamePrerequisites.resolve("C:\\IridiumPrerequisites\\shared1\\setup.EXE", drive: prefix.appendingPathComponent("drive_c")) != nil)
         precondition(IridiumGamePrerequisites.resolve("C:\\..\\save.dat", drive: prefix.appendingPathComponent("drive_c")) == nil)
 

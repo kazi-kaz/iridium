@@ -89,7 +89,7 @@ enum IridiumSteamInstallScript {
     /// text. Scripts repeat the "Run Process" key, one section per installer, so a
     /// key-value reader that keeps the last copy of a repeated key would miss entries.
     static func entries(script: Data, appID: Int? = nil) throws -> [(IridiumInstallRun, [String: String])] {
-        guard script.count <= maxScriptBytes else { throw invalidScript() }
+        guard script.count <= maxScriptBytes else { throw invalidScript("the script is larger than 1 MB") }
         var bytes = Array(script)
         if bytes.starts(with: [0xef, 0xbb, 0xbf]) { bytes.removeFirst(3) }
         var position = 0
@@ -114,33 +114,48 @@ enum IridiumSteamInstallScript {
                     if byte == 92, position < bytes.count, bytes[position] == 34 || bytes[position] == 92 { value.append(bytes[position]); position += 1 }
                     else { value.append(byte) }
                 }
-                throw invalidScript()
+                throw invalidScript("a quoted value is not closed")
             }
             value.append(first)
             while position < bytes.count, bytes[position] > 32, bytes[position] != 123, bytes[position] != 125 { value.append(bytes[position]); position += 1 }
+            // KeyValues platform conditional, e.g. "key" "value" [$WIN64].
+            if first == 91, value.last == 93 { return (String(decoding: value, as: UTF8.self), false) }
             return (String(decoding: value, as: UTF8.self), true)
         }
         var result: [(IridiumInstallRun, [String: String])] = []
         var path: [String] = []          // keys of the open sections, lowercased
         var pending: String?             // a key waiting for its value or section
         var fields: [String: String] = [:]
+        var lastField: (key: String, previous: String?)?  // the entry field a following conditional applies to
         var tokens = 0
         while let (text, quoted) = try token() {
             tokens += 1
-            if tokens > 200_000 || path.count > 32 { throw invalidScript() }
+            if tokens > 200_000 || path.count > 32 { throw invalidScript("the script is too deeply nested or too long") }
+            if !quoted && text.hasPrefix("[") {
+                // A conditional after a value drops that value unless it holds on Windows.
+                // One after a section key is ignored, as Valve's Windows client keeps it.
+                if pending == nil, let field = lastField, !windowsCondition(text) { fields[field.key] = field.previous }
+                lastField = nil
+                continue
+            }
+            lastField = nil
             if !quoted && text == "{" {
-                guard let pendingKey = pending else { throw invalidScript() }
+                guard let pendingKey = pending else { throw invalidScript("a section has no name") }
                 path.append(pendingKey.lowercased()); pending = nil
                 if path.count >= 2, path[path.count - 2] == "run process" { fields = [:] }
             } else if !quoted && text == "}" {
                 // An entry section closes: path is [..., "run process", <entry>].
-                guard !path.isEmpty, pending == nil else { throw invalidScript() }
+                guard !path.isEmpty, pending == nil else { throw invalidScript("a section closes without a value for \"\(pending ?? "}")\"") }
                 if path.count >= 2, path[path.count - 2] == "run process", let name = path.last,
                    fields.keys.contains(where: { $0.hasPrefix("process ") }) {
-                    guard let key = runKey(fields, appID: appID), let (hive, sub) = hive(key), !sub.isEmpty else { throw invalidScript() }
+                    guard let key = runKey(fields, appID: appID), let (hive, sub) = hive(key), !sub.isEmpty else {
+                        throw invalidScript("entry \"\(name)\" uses HasRunKey \"\(fields["hasrunkey"] ?? "")\"")
+                    }
                     let minimum: UInt32
                     if let text = fields["minimumhasrunvalue"] {
-                        guard let value = UInt32(text.trimmingCharacters(in: .whitespaces)) else { throw invalidScript() }
+                        guard let value = UInt32(text.trimmingCharacters(in: .whitespaces)) else {
+                            throw invalidScript("entry \"\(name)\" has MinimumHasRunValue \"\(text)\"")
+                        }
                         minimum = value
                     } else { minimum = 1 }
                     let run = IridiumInstallRun(name: name, hive: hive, key: sub, value: max(1, minimum))
@@ -149,14 +164,32 @@ enum IridiumSteamInstallScript {
                 if !path.isEmpty { path.removeLast() }
                 pending = nil
             } else if let key = pending {
-                if path.count >= 2, path[path.count - 2] == "run process" { fields[key.lowercased()] = text }
+                if path.count >= 2, path[path.count - 2] == "run process" {
+                    let field = key.lowercased()
+                    lastField = (key: field, previous: fields[field])
+                    fields[field] = text
+                }
                 pending = nil
             } else {
                 pending = text
             }
         }
-        guard path.isEmpty, pending == nil else { throw invalidScript() }
+        guard path.isEmpty, pending == nil else { throw invalidScript("the script ends inside a section") }
         return result
+    }
+
+    /// A KeyValues conditional such as [$WIN32], [!$X360] or [$WIN64||$OSX], evaluated
+    /// for 64-bit Windows. Unknown platform names are false.
+    static func windowsCondition(_ text: String) -> Bool {
+        let body = text.dropFirst().dropLast().replacingOccurrences(of: " ", with: "")
+        return body.components(separatedBy: "||").contains { alternative in
+            alternative.components(separatedBy: "&&").allSatisfy { term in
+                let negated = term.hasPrefix("!")
+                let name = (negated ? term.dropFirst() : Substring(term)).uppercased()
+                let holds = ["$WIN32", "$WIN64", "$WINDOWS"].contains(name)
+                return negated ? !holds : holds
+            }
+        }
     }
 
     /// The programs of one install script. `installDir` replaces %INSTALLDIR% (a Windows
@@ -167,21 +200,29 @@ enum IridiumSteamInstallScript {
         for (run, fields) in try entries(script: script, appID: appID) {
             if completed(run) { continue }
             let numbered = try fields.keys.filter { $0.hasPrefix("process ") }.map { key -> (Int, String) in
-                guard let number = Int(key.dropFirst("process ".count).trimmingCharacters(in: .whitespaces)), number >= 0 else { throw invalidScript() }
+                guard let number = Int(key.dropFirst("process ".count).trimmingCharacters(in: .whitespaces)), number >= 0 else {
+                    throw invalidScript("entry \"\(run.name)\" has a field named \"\(key)\"")
+                }
                 return (number, key)
             }.sorted { $0.0 < $1.0 }
             for (number, field) in numbered {
-                guard let raw = fields[field], !raw.isEmpty, raw.utf8.count <= 1024 else { throw invalidScript() }
+                guard let raw = fields[field], !raw.isEmpty, raw.utf8.count <= 1024 else {
+                    throw invalidScript("entry \"\(run.name)\" has an empty or overlong program path")
+                }
                 let exe = expand(raw, installDir: installDir)
                 let lower = exe.lowercased()
                 guard exe.count > 3, exe.hasPrefix("C:\\"), !exe.contains("%"), !exe.contains("\""),
                       !exe.contains("\0"), !exe.contains("\r"), !exe.contains("\n"),
-                      !exe.split(separator: "\\").contains(".."), lower.hasSuffix(".exe") || lower.hasSuffix(".msi") else { throw invalidScript() }
+                      !exe.split(separator: "\\").contains(".."), lower.hasSuffix(".exe") || lower.hasSuffix(".msi") else {
+                    throw invalidScript("entry \"\(run.name)\" runs \"\(raw)\"")
+                }
                 let args = expand(fields["command \(number)"] ?? "", installDir: installDir, path: false)
                     .trimmingCharacters(in: .whitespaces)
                 // Arguments go directly to CreateProcessW, never through cmd.exe.
                 guard args.utf8.count <= 16_384, !args.contains("\r"), !args.contains("\n"),
-                      !args.contains("\0"), !args.contains("%") else { throw invalidScript() }
+                      !args.contains("\0"), !args.contains("%") else {
+                    throw invalidScript("entry \"\(run.name)\" passes \"\(args)\"")
+                }
                 let process = IridiumInstallProcess(run: run, executable: exe, arguments: args)
                 if !result.contains(process) { result.append(process) }
             }
@@ -225,8 +266,9 @@ enum IridiumSteamInstallScript {
 
     static func escape(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
 
-    private static func invalidScript() -> NSError {
-        NSError(domain: "IridiumPrerequisites", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "A prerequisite install script is invalid or uses an unsupported installer command."])
+    private static func invalidScript(_ detail: String) -> NSError {
+        let clean = String(detail.unicodeScalars.map { $0.value < 32 ? " " : Character($0) }.prefix(300))
+        return NSError(domain: "IridiumPrerequisites", code: 1,
+                       userInfo: [NSLocalizedDescriptionKey: "A prerequisite install script is invalid or uses an unsupported installer command: \(clean)."])
     }
 }

@@ -114,7 +114,8 @@ enum IridiumGamePrerequisites {
     static func prepare(prefix: URL, executable: String, arguments: [String], appID: Int?,
                         sharedRoots: [URL] = [], steam: MadeiraSteamClient.Launch? = nil,
                         dock: MadeiraSteamDock.Stage? = nil,
-                        resources: Bundle = .main) throws -> Launch? {
+                        resources: Bundle = .main,
+                        skipped: (String, Error) -> Void = { _, _ in }) throws -> Launch? {
         guard steam == nil || dock == nil else { throw failure("Steam Client and Madeira Dock cannot both start this game.") }
         let fm = FileManager.default
         let drive = prefix.appendingPathComponent("drive_c", isDirectory: true)
@@ -135,8 +136,17 @@ enum IridiumGamePrerequisites {
             var pending: [IridiumInstallProcess] = []
             for file in try IridiumSteamInstallScript.scripts(folder: root) {
                 let bytes = try Data(contentsOf: file)
-                let processes = try IridiumSteamInstallScript.processes(script: bytes, installDir: installDir, appID: appID) {
-                    IridiumSteamInstallScript.marked($0, in: $0.hive == .machine ? machine : user)
+                // One unreadable script (often a Steamworks Shared redistributable the game
+                // does not need) skips only its own installers, not the game. The game then
+                // starts with Wine's built-in runtimes in their place.
+                let processes: [IridiumInstallProcess]
+                do {
+                    processes = try IridiumSteamInstallScript.processes(script: bytes, installDir: installDir, appID: appID) {
+                        IridiumSteamInstallScript.marked($0, in: $0.hive == .machine ? machine : user)
+                    }
+                } catch {
+                    skipped((index == 0 ? "game folder: " : "Steamworks Shared: ") + scriptName(file, under: root), error)
+                    continue
                 }
                 for process in processes {
                     if !pending.contains(process) { pending.append(process) }
@@ -193,6 +203,13 @@ enum IridiumGamePrerequisites {
 
     // Native downloads use SteamGames/<appid>/<variant>/content. Also accept the
     // usual Steamworks Shared sibling folder, when the selected library has it.
+    /// A script's path below its root, for the log.
+    static func scriptName(_ file: URL, under root: URL) -> String {
+        let base = root.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        let path = file.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : file.pathComponents.suffix(3).joined(separator: "/")
+    }
+
     static func sharedRoots(gameRoot: URL, nativeSteamInstall: Bool,
                             steamGamesRoot: URL? = nil) -> [URL] {
         guard nativeSteamInstall else { return [] }
