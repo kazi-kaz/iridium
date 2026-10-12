@@ -39,7 +39,8 @@ enum IridiumGamePrerequisites {
     struct Launch { let executable: String; let arguments: [String]; let installerCount: Int; var steamClient = false; var steamDock = false }
     static func sharedRoots(gameRoot: URL, nativeSteamInstall: Bool) -> [URL] { [] }
     static func prepare(prefix: URL, executable: String, arguments: [String], appID: Int?, sharedRoots: [URL],
-                        steam: MadeiraSteamClient.Launch? = nil, dock: MadeiraSteamDock.Stage? = nil) throws -> Launch? {
+                        steam: MadeiraSteamClient.Launch? = nil, dock: MadeiraSteamDock.Stage? = nil,
+                        skipped: (String, Error) -> Void = { _, _ in }) throws -> Launch? {
         if scenario == "prerequisite-failure" { throw CocoaError(.fileReadCorruptFile) }
         return ["prerequisite-success", "prerequisite-cancel", "prerequisite-close-timeout", "prerequisite-nonzero-exit", "prerequisite-nonzero-close-timeout"].contains(scenario) ? Launch(executable: "C:\\helper.exe", arguments: ["C:\\plan.ini"], installerCount: 1) : nil
     }

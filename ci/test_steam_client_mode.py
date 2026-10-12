@@ -39,7 +39,9 @@ class SteamClientModeSourceTests(unittest.TestCase):
     def test_adapter_decides_before_writing_the_plan(self):
         boot = self.adapter[self.adapter.index("let mediaProbe ="):self.adapter.index("RuntimeLogCapture.writeLine(\"[Launch] Game files")]
         self.assertLess(boot.index("MadeiraSteamClient.request("), boot.index("IridiumGamePrerequisites.prepare("))
-        self.assertIn("steam: steamClient, dock: dockStage)", boot)
+        self.assertIn("steam: steamClient, dock: dockStage,", boot)
+        # Unusable prerequisite scripts are logged, not fatal.
+        self.assertIn("skipped: { script, error in", boot)
         self.assertIn("enabled: MadeiraSteamClient.isEnabled", boot)
         # Madeira Dock, when it starts the game, replaces the desktop Steam client.
         self.assertIn("if !mediaProbe && dockStage == nil {", boot)
