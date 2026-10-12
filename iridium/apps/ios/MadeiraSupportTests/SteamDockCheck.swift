@@ -127,6 +127,8 @@ import Foundation
         precondition(MadeiraSteamDock.Report(fields: ["probe-result": "0"]).unfinished == nil)
         precondition(MadeiraSteamDock.Report(fields: ["load-client-begin": "0", "session-native-token-submitted": "1"])
             .unfinished?.contains("while signing in") == true)
+        precondition(MadeiraSteamDock.Report(fields: ["launch-game-running": "1", "launch-game-ended": "1"])
+            .unfinished?.hasPrefix("Steam started the game, and the game then closed") == true)
         precondition(MadeiraSteamDock.Report(fields: ["probe-result": "41", "launch-install-directory-mismatch": "1"])
             .failure?.contains("install folder") == true)
 

@@ -626,6 +626,11 @@ enum MadeiraSteamDock {
         /// runtime under it) ended the process. Says how far it got.
         var unfinished: String? {
             guard result == nil, !fields.isEmpty else { return nil }
+            // Valve's client started the game and saw it end; the host was stopped
+            // while it shut the client down. The game's own exit is the news.
+            if fields["launch-game-running"] == "1" {
+                return "Steam started the game, and the game then closed. Its own error message, if it showed one, is the cause; the log has the details."
+            }
             let stage = fields["launch-request-submitted"] != nil ? "starting the game"
                 : fields["session-authenticated-online"] == "1" ? "checking the game's license"
                 : fields["session-native-token-submitted"] != nil ? "signing in"
