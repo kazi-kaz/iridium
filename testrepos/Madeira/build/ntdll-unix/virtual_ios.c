@@ -2933,6 +2933,95 @@ uint64_t ios_jit_reverse_translate( uint64_t addr, uint64_t *module_base )
  * code in their copies. */
 static void (*ios_jit_alias_pushback_cb)(unsigned long long, unsigned long long, unsigned long long) = NULL;
 
+/* Pool copies of a reclaimed process, as they were pushed to FEX.
+ *
+ * Reclaim tombstones this file's table, but FEX's alias table (filled through
+ * ios_jit_alias_pushback_cb) only retires an entry when a new image overlaps
+ * its PE range. A reused pool range therefore leaves FEX holding the dead
+ * copy's entry at the same pool addresses, ahead of the new image's. FEX's
+ * reverse lookup then sends a guest RIP in the new copy to the dead module's
+ * PE address: Madeira Dock, 2026-10-11, winhttp.dll's copy reused the range of
+ * a finished winedevice's ntoskrnl.exe copy; Valve's client called a winhttp
+ * export through its pool address, FEX redirected to ntoskrnl+0x49cd6, found
+ * no x86 code there (NoExec, the deliberate NULL read) and the client's crash
+ * handler ended the process (exit 1). Before a reused range is pushed, each
+ * dead entry is retired by pushing a one-byte identity entry at its PE base:
+ * FEX retires the overlapping dead entry, and the replacement translates its
+ * single byte to itself. MADEIRA_NO_FEX_ALIAS_RETIRE=1 turns this off. */
+#define IOS_STALE_ALIAS_MAX 512
+static struct { uintptr_t jit_base, size, pe_base; } ios_stale_alias[IOS_STALE_ALIAS_MAX];
+static int ios_stale_alias_count, ios_stale_alias_next;
+static pthread_mutex_t ios_stale_alias_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void ios_stale_alias_record( void *pe_base, void *jit_base, size_t size )
+{
+    static int full_said;
+    int slot;
+
+    if (!pe_base || !size) return;
+    pthread_mutex_lock( &ios_stale_alias_lock );
+    if (ios_stale_alias_count < IOS_STALE_ALIAS_MAX) slot = ios_stale_alias_count++;
+    else
+    {
+        /* Oldest first: its range has most likely been reused (and retired) already. */
+        slot = ios_stale_alias_next;
+        ios_stale_alias_next = (ios_stale_alias_next + 1) % IOS_STALE_ALIAS_MAX;
+        if (!full_said++) dprintf( 2, "[jit-alias] stale FEX alias list full; dropping the oldest\n" );
+    }
+    ios_stale_alias[slot].jit_base = (uintptr_t)jit_base;
+    ios_stale_alias[slot].size = size;
+    ios_stale_alias[slot].pe_base = (uintptr_t)pe_base;
+    pthread_mutex_unlock( &ios_stale_alias_lock );
+}
+
+static void ios_stale_alias_retire( void *jit_base, size_t size )
+{
+    static int disabled = -1, said;
+    uintptr_t found[16];
+    uintptr_t lo = (uintptr_t)jit_base, hi = lo + size;
+    int i, n = 0;
+
+    if (disabled < 0) disabled = (getenv( "MADEIRA_NO_FEX_ALIAS_RETIRE" ) != NULL);
+    if (disabled || !ios_jit_alias_pushback_cb || !size) return;
+    do
+    {
+        n = 0;
+        pthread_mutex_lock( &ios_stale_alias_lock );
+        for (i = 0; i < ios_stale_alias_count && n < 16; )
+        {
+            uintptr_t jb = ios_stale_alias[i].jit_base;
+            if (jb < hi && lo < jb + ios_stale_alias[i].size)
+            {
+                found[n++] = ios_stale_alias[i].pe_base;
+                ios_stale_alias[i] = ios_stale_alias[--ios_stale_alias_count];
+                if (ios_stale_alias_next > ios_stale_alias_count) ios_stale_alias_next = 0;
+                continue;
+            }
+            i++;
+        }
+        pthread_mutex_unlock( &ios_stale_alias_lock );
+        for (i = 0; i < n; i++)
+        {
+            int j, live = 0;
+
+            /* FEX routes a below-4GB first argument to its sub-floor table. */
+            if (found[i] < 0x100000000ull) continue;
+            /* A live image now at that PE address already replaced the dead entry in
+             * FEX (it retires PE overlaps); retiring again would drop the live one. */
+            for (j = 0; j < ios_jit_mapping_count && !live; j++)
+            {
+                uintptr_t pb = (uintptr_t)ios_jit_mappings[j].pe_base;
+                live = pb && found[i] >= pb && found[i] < pb + ios_jit_mappings[j].size;
+            }
+            if (live) continue;
+            if (said++ < 32)
+                dprintf( 2, "[jit-alias] retiring dead FEX alias pe=%p (its pool range is reused at %p+0x%lx)\n",
+                         (void *)found[i], jit_base, (unsigned long)size );
+            ios_jit_alias_pushback_cb( found[i], found[i], 1 );
+        }
+    } while (n == 16);
+}
+
 void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
 {
     int i;
@@ -3014,7 +3103,9 @@ void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
     /* If xtajit64 has already registered its alias-mapping push callback
      * (via the unix_ios_push_jit_aliases unix-call), forward this new
      * mapping to it too. Early mappings (added before xtajit64 loads) are
-     * picked up by the iteration in unix_ios_push_jit_aliases. */
+     * picked up by the iteration in unix_ios_push_jit_aliases. A reused pool
+     * range first retires the dead copies FEX still holds there. */
+    ios_stale_alias_retire( jit_base, size );
     if (ios_jit_alias_pushback_cb)
         ios_jit_alias_pushback_cb((unsigned long long)(uintptr_t)pe_base,
                                   (unsigned long long)(uintptr_t)jit_base,
@@ -9453,6 +9544,8 @@ void ios_jit_reclaim_process( void *peb )
             if (!ios_jit_mappings[j].pe_base) continue;
             if (jb >= rx_base + off && jb < rx_base + off + size)
             {
+                /* FEX was told about this copy and is not told it died. */
+                ios_stale_alias_record( ios_jit_mappings[j].pe_base, jb, ios_jit_mappings[j].size );
                 ios_jit_mappings[j].size = 0;
                 __sync_synchronize();
                 ios_jit_mappings[j].pe_base = NULL;

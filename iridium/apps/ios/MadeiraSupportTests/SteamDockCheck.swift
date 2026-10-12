@@ -124,6 +124,9 @@ import Foundation
         precondition(failed.failure?.contains("license") == true)
         precondition(MadeiraSteamDock.Report(fields: ["probe-result": "45", "launch-client-error": "5"]).failure?.contains("license") == true)
         precondition(MadeiraSteamDock.Report(fields: ["probe-result": "0"]).failure == nil)
+        precondition(MadeiraSteamDock.Report(fields: ["probe-result": "0"]).unfinished == nil)
+        precondition(MadeiraSteamDock.Report(fields: ["load-client-begin": "0", "session-native-token-submitted": "1"])
+            .unfinished?.contains("while signing in") == true)
         precondition(MadeiraSteamDock.Report(fields: ["probe-result": "41", "launch-install-directory-mismatch": "1"])
             .failure?.contains("install folder") == true)
 

@@ -324,6 +324,22 @@ Valve's client and servers decide sign-in, ownership and launch; the game and
 its DRM are not modified, and no Valve binary is bundled. Checked by
 `ci/test_steam_dock.py` and the helper harness in `ci/test_game_prerequisites.py`.
 
+### Reused JIT-pool ranges and FEX's alias table
+
+`build/ntdll-unix/virtual_ios.c`: when a pseudo-process exits, its pool copies
+are tombstoned here, but FEX's alias table (filled through the push callback)
+keeps them until a new image overlaps their PE range. A new image placed in a
+reused range sat behind the dead entry, and FEX's pool-to-PE lookup returned
+the dead module. In the first Madeira Dock run (MX Bikes, 2026-10-11)
+winhttp.dll's copy reused a finished winedevice's ntoskrnl.exe range; Valve's
+client called a winhttp export, FEX redirected it into ntoskrnl, found no x86
+code (NoExec) and the client's crash handler ended the host with exit code 1.
+Reclaim now records each pushed copy, and adding a copy in a reused range first
+pushes a one-byte identity entry at each dead PE base, which retires the dead
+entry in FEX. An image live again at that PE address is left alone.
+`MADEIRA_NO_FEX_ALIAS_RETIRE=1` turns it off. Checked by
+`build/host-tests/check-fex-alias-retire.py`. No FEX source changes.
+
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 
 `process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`

@@ -622,6 +622,17 @@ enum MadeiraSteamDock {
             return nil
         }
 
+        /// The host's process ended before it wrote a result: Valve's client (or the
+        /// runtime under it) ended the process. Says how far it got.
+        var unfinished: String? {
+            guard result == nil, !fields.isEmpty else { return nil }
+            let stage = fields["launch-request-submitted"] != nil ? "starting the game"
+                : fields["session-authenticated-online"] == "1" ? "checking the game's license"
+                : fields["session-native-token-submitted"] != nil ? "signing in"
+                : fields["load-client-begin"] != nil ? "loading" : "starting"
+            return "Valve's Steam client stopped unexpectedly while \(stage). Export the log: it shows where."
+        }
+
         var failure: String? {
             guard let result, result != 0 else { return nil }
             if fields["another-client-or-process-query-error"] == "1" {

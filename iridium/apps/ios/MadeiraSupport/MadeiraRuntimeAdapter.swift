@@ -390,7 +390,7 @@ enum MadeiraRuntimeAdapter {
                             if steamDockSession, let prefix = prerequisitePrefix,
                                let dockReport = MadeiraSteamDock.readReport(prefix: prefix) {
                                 logDockReport(dockReport)
-                                if let message = dockReport.failure { failure(message); return }
+                                if let message = dockReport.failure ?? dockReport.unfinished { failure(message); return }
                             }
                             failure("Launch stopped with exit code \(code). Check View Log for the failed step.")
                             return
