@@ -270,6 +270,10 @@ being read as keys. A script that still cannot be used skips only its own
 installers: the launch continues and the log names the script and the rejected
 entry (`[Launch] Skipped prerequisite script`). Before this, one such script in the
 game folder or Steamworks Shared stopped the game from starting.
+Steam's DirectX June 2010 redistributable (`DXSETUP.exe`) is not run from Steam
+install scripts: Wine has those DirectX libraries built in, and DXSETUP.exe
+exited -9 under it, which stopped Pseudoregalia's launch. A file chosen in Game
+Options still runs.
 
 `prerequisites.c` adapts Wine service-manager startup from `willfaust/madeira-dock`
 `src/scm.c` at `3cadfbea700e4da4b04e331dd7ef1ba633dfacef`. It runs included EXE
@@ -390,6 +394,17 @@ the other compiler stages. The app carries `libOSMesa.dylib` and
 test context reports the Zink renderer and falls back to OpenGL ES otherwise.
 Zink on MoltenVK advertises OpenGL 4.1 (`MESA_GL_VERSION_OVERRIDE`); Metal has
 no geometry shaders, so a game that uses them fails at that shader.
+
+## JIT pool: a child's ntdll copy is not reused
+
+`virtual_ios.c` keeps the pool range of an exited child's ntdll copy out of the
+freelist. In two sessions (MX Bikes, Pseudoregalia; 2026-10-12) the image that
+next received that range (wevtsvc.dll, a winedevice driver, nsi.dll) faulted on
+zeros or stray data in the pages that had been the dead child's ntdll .data,
+although the copy read back correctly right after it was made. Something still
+writes those globals after the grace period; until it is found, each exited
+child costs about 2 MB of pool. `MADEIRA_POOL_REUSE_NTDLL=1` restores reuse.
+Host check: `build/host-tests/check-ntdll-quarantine.py`.
 
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 

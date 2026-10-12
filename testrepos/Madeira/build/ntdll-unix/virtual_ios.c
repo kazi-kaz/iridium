@@ -9603,12 +9603,32 @@ static void clear_arm64ec_range( const void *addr, size_t size );
  * (size=0 → matches nothing; pe_base=NULL → slot reusable); anon RWX
  * aliases (FEX CodeBuffers) in freed ranges are cleared; EC bitmap bits
  * are cleared so a reused range starts with a clean call-routing slate. */
+/* A child's ntdll copy is never reused (2026-10-12, MX Bikes and
+ * Pseudoregalia). Its range came back from the freelist to the next image, and
+ * that image then ran zeros or stray data in the pages that had been the dead
+ * child's ntdll .data: wevtsvc.dll, a winedevice driver and nsi.dll each faulted
+ * at +0x174d74, +0x1791d4 and +0x179644 of the same reclaimed ntdll copy, in two
+ * sessions, although the copy-verify read-back right after each copy was clean.
+ * Something still writes the dead child's ntdll globals after the grace
+ * period. Until that writer is found, the copy stays out of the freelist
+ * (about 2 MB of pool per exited child). MADEIRA_POOL_REUSE_NTDLL=1 restores
+ * reuse. Set by the child-ntdll copy below; read under ios_pool_lock. */
+static void *ios_child_ntdll_pe;
+static size_t ios_pool_quarantined;
+
 void ios_jit_reclaim_process( void *peb )
 {
     size_t total = 0;
-    int ranges = 0, maps_killed = 0, aliases_killed = 0;
+    int ranges = 0, maps_killed = 0, aliases_killed = 0, quarantined = 0;
     int i, j;
     char *rx_base = (char *)ios_jit_rx_base_global;
+    static int reuse_ntdll = -1;
+
+    if (reuse_ntdll < 0)
+    {
+        const char *e = getenv( "MADEIRA_POOL_REUSE_NTDLL" );
+        reuse_ntdll = e && *e == '1';
+    }
 
     if (!peb || !rx_base) return;
 
@@ -9617,6 +9637,7 @@ void ios_jit_reclaim_process( void *peb )
     for (i = 0; i < ios_pool_ledger_count; )
     {
         size_t off, size;
+        int holds_ntdll = 0;
         if (ios_pool_ledger[i].peb != peb) { i++; continue; }
         off  = ios_pool_ledger[i].off;
         size = ios_pool_ledger[i].size;
@@ -9631,6 +9652,8 @@ void ios_jit_reclaim_process( void *peb )
             if (!ios_jit_mappings[j].pe_base) continue;
             if (jb >= rx_base + off && jb < rx_base + off + size)
             {
+                if (ios_child_ntdll_pe && ios_jit_mappings[j].pe_base == ios_child_ntdll_pe)
+                    holds_ntdll = 1;
                 /* FEX was told about this copy and is not told it died. */
                 ios_stale_alias_record( ios_jit_mappings[j].pe_base, jb, ios_jit_mappings[j].size );
                 ios_jit_mappings[j].size = 0;
@@ -9726,7 +9749,12 @@ void ios_jit_reclaim_process( void *peb )
                          (unsigned long)off, (unsigned long)size, fcur, fmax );
         }
 
-        if (ios_pool_free_count < IOS_POOL_FREE_MAX)
+        if (holds_ntdll && !reuse_ntdll)
+        {
+            ios_pool_quarantined += size;
+            quarantined++;
+        }
+        else if (ios_pool_free_count < IOS_POOL_FREE_MAX)
         {
             ios_pool_freelist[ios_pool_free_count].off = off;
             ios_pool_freelist[ios_pool_free_count].size = size;
@@ -9755,6 +9783,10 @@ void ios_jit_reclaim_process( void *peb )
                 peb, ranges, (unsigned long)total, IOS_POOL_REUSE_GRACE_SEC,
                 maps_killed, aliases_killed,
                 (unsigned long)jit_pool_offset, ios_pool_free_count);
+    if (quarantined)
+        dprintf(2, "[jit-pool] RECLAIM peb=%p: child ntdll copy kept out of the freelist "
+                "(%d range(s); 0x%lx quarantined in total)\n",
+                peb, quarantined, (unsigned long)ios_pool_quarantined);
 
     /* ml983: only now is the fixed-base window occupant safe to retire. This is
      * deliberately AFTER the ledger walk, not before it: the flag is what lets
@@ -13201,6 +13233,7 @@ int ios_jit_copy_module_for_child(void *module_addr, void *child_peb)
     rw_dest = (char *)ios_jit_rw_base_global + offset;
     rx_dest = (char *)ios_jit_rx_base_global + offset;
     src = (char *)m->pe_base;
+    ios_child_ntdll_pe = m->pe_base;   /* reclaim keeps this copy's range out of reuse */
 
     memcpy(rw_dest, src, m->size);
     /* task #34: verify HERE, before relocations/x18 patching legitimately

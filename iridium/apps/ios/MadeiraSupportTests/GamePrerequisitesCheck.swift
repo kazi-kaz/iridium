@@ -179,6 +179,25 @@ import Foundation
         precondition(partialLaunch?.installerCount == 1)
         precondition(skippedScripts == ["Steamworks Shared: _CommonRedist/Other/installscript.vdf"], "\(skippedScripts)")
         try fm.removeItem(at: badShared)
+        // Steam's DirectX redistributable is skipped and reported; Wine provides DirectX.
+        let directX = shared.appendingPathComponent("_CommonRedist/DirectX/Jun2010")
+        try fm.createDirectory(at: directX, withIntermediateDirectories: true)
+        try Data(#"""
+        "InstallScript" { "Run Process" { "DirectX" {
+          "HasRunKey" "HKEY_LOCAL_MACHINE\\Software\\Valve\\Steam\\Apps\\CommonRedist\\DirectX\\Jun2010"
+          "process 1" "%INSTALLDIR%\\_CommonRedist\\DirectX\\Jun2010\\DXSETUP.exe"
+          "command 1" "/silent"
+        } } }
+        """#.utf8).write(to: directX.appendingPathComponent("installscript.vdf"))
+        skippedScripts = []
+        let directXLaunch = try IridiumGamePrerequisites.prepare(prefix: prefix, executable: "C:\\IridiumGame\\Game.exe",
+            arguments: [], appID: 42, sharedRoots: sharedRoots, resources: resources,
+            skipped: { name, _ in skippedScripts.append(name) })
+        precondition(directXLaunch?.installerCount == 1)
+        precondition(skippedScripts == ["Steamworks Shared: _CommonRedist/DirectX/Jun2010/installscript.vdf"], "\(skippedScripts)")
+        precondition(IridiumGamePrerequisites.isDirectXSetup("C:\\IridiumGame\\_CommonRedist\\DirectX\\Jun2010\\DXSETUP.exe"))
+        precondition(!IridiumGamePrerequisites.isDirectXSetup("C:\\IridiumGame\\redist\\Setup.exe"))
+        try fm.removeItem(at: directX)
         precondition(IridiumGamePrerequisites.resolve("C:\\IridiumPrerequisites\\shared1\\setup.EXE", drive: prefix.appendingPathComponent("drive_c")) != nil)
         precondition(IridiumGamePrerequisites.resolve("C:\\..\\save.dat", drive: prefix.appendingPathComponent("drive_c")) == nil)
 

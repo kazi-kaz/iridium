@@ -149,6 +149,15 @@ enum IridiumGamePrerequisites {
                     continue
                 }
                 for process in processes {
+                    // Steam's DirectX June 2010 redistributable: Wine has these DirectX
+                    // libraries built in, and DXSETUP.exe fails under it (exit -9 in a
+                    // Pseudoregalia launch, 2026-10-12), which stopped the game. Proton
+                    // skips it the same way. A file chosen in Game Options still runs.
+                    if root != manual, isDirectXSetup(process.executable) {
+                        skipped((index == 0 ? "game folder: " : "Steamworks Shared: ") + scriptName(file, under: root),
+                                failure("DXSETUP.exe is not run; Wine provides DirectX."))
+                        continue
+                    }
                     if !pending.contains(process) { pending.append(process) }
                 }
             }
@@ -203,6 +212,11 @@ enum IridiumGamePrerequisites {
 
     // Native downloads use SteamGames/<appid>/<variant>/content. Also accept the
     // usual Steamworks Shared sibling folder, when the selected library has it.
+    /// Steam's DirectX redistributable installer (`_CommonRedist\DirectX\...\DXSETUP.exe`).
+    static func isDirectXSetup(_ executable: String) -> Bool {
+        executable.split(separator: "\\").last?.lowercased() == "dxsetup.exe"
+    }
+
     /// A script's path below its root, for the log.
     static func scriptName(_ file: URL, under root: URL) -> String {
         let base = root.standardizedFileURL.resolvingSymlinksInPath().path + "/"
