@@ -298,6 +298,48 @@ enum SteamManagedFiles {
             try manager.removeItem(at: folder)
         }
     }
+
+    // Frees what an unfinished download left behind. A folder with an installed.json
+    // is a finished install and is never touched here; Delete Game Files owns those.
+    // Another unfinished entry for the same game may resume from the same folder, so
+    // nothing is deleted until this is the game's last unfinished entry.
+    static func discardUnfinished(_ job: SteamDownloadJob, among jobs: [SteamDownloadJob], from root: URL) throws {
+        guard job.status != .completed, job.status != .running, job.installed == nil
+        else { throw CocoaError(.fileReadInvalidFileName) }
+        guard !jobs.contains(where: { $0.id != job.id && $0.appId == job.appId && $0.status != .completed })
+        else { return }
+        let manager = FileManager.default
+        let appRoot = root.resolvingSymlinksInPath().standardizedFileURL
+            .appendingPathComponent(String(job.appId), isDirectory: true)
+        guard manager.fileExists(atPath: appRoot.path) else { return }
+        let builds = try manager.contentsOfDirectory(at: appRoot, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent != "installs" && !$0.lastPathComponent.hasPrefix(".") }
+        var folders: [URL] = []
+        if job.reuseDirectory != nil {
+            // A repair or update downloads into a folder named after its queue entry.
+            let operation = job.id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            folders.append(appRoot.appendingPathComponent("installs/" + operation, isDirectory: true))
+            for build in builds { folders.append(build.appendingPathComponent("checks/" + operation, isDirectory: true)) }
+        } else {
+            folders = builds
+        }
+        for folder in folders { try discardUnfinishedFolder(folder, under: appRoot) }
+    }
+
+    private static func discardUnfinishedFolder(_ folder: URL, under appRoot: URL) throws {
+        let manager = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard manager.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true,
+              folder.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(appRoot.path + "/"),
+              !manager.fileExists(atPath: folder.appendingPathComponent("installed.json").path)
+        else { return }
+        for name in ["content", "partial"] {
+            let item = folder.appendingPathComponent(name)
+            if manager.fileExists(atPath: item.path) { try manager.removeItem(at: item) }
+        }
+        if try manager.contentsOfDirectory(atPath: folder.path).isEmpty { try manager.removeItem(at: folder) }
+    }
 }
 
 actor SteamQueuePersistence {

@@ -470,6 +470,25 @@ final class SteamLibraryModel: ObservableObject {
     }
 
     func remove(_ id: UUID) { if queue.remove(id) { checkpoint() } }
+
+    // Removes an unfinished download and frees its partial files. A completed download
+    // keeps its files; Delete Game Files is the way to remove those.
+    func removeUnfinished(_ id: UUID) async throws {
+        guard !busy, let job = queue.jobs.first(where: { $0.id == id }),
+              job.status != .completed, job.status != .running, job.installed == nil
+        else { throw CocoaError(.fileWriteNoPermission) }
+        starting = true
+        defer { starting = false; startNext() }
+        let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: false).appendingPathComponent("SteamGames", isDirectory: true)
+        let jobs = queue.jobs
+        try await Task.detached(priority: .utility) {
+            try SteamManagedFiles.discardUnfinished(job, among: jobs, from: root)
+        }.value
+        if backgroundTransfers { await SteamBackgroundSession.shared.cancel(operation: job.id.uuidString, discardRaw: true) }
+        _ = queue.remove(job.id)
+        checkpoint()
+    }
     func deleteFiles(_ job: SteamDownloadJob) async throws {
         guard SteamCloudFileAccess.shared.isHeld(by: .deleteSteamFiles), !busy, job.status == .completed, let installed = job.installed,
               queue.jobs.contains(where: { $0.id == job.id && $0.installed?.directory == installed.directory }),

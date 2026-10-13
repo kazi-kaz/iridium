@@ -211,7 +211,9 @@ outstanding; public metadata, QR challenge/cancel, and fixtures are narrower che
 6. Check for Updates and Repair or Update. Confirm older game files remain,
    registration preserves settings/prefix/save mappings, and game-local saves
    are copied manually when needed.
-7. In a disposable test copy, distinguish Remove from Downloads (history only)
+7. In a disposable test copy, distinguish Remove from Downloads (history only for a
+   finished download; for an unfinished one, confirm Remove and Delete Partial
+   Files frees the partial folder and Remove, Keep Partial Files does not)
    from Delete Game Files (selected copy and library entry, including game-local
    saves). Confirm separate Windows-profile saves remain.
 8. Check VoiceOver, large text, orientation, keyboard and controller navigation,

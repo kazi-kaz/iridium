@@ -153,6 +153,34 @@ import Foundation
             try check(false, "Outside install accepted")
         } catch { checks += 1 }
         try check(FileManager.default.fileExists(atPath: outside.path), "Outside files remain untouched")
+        // Unfinished downloads: their folders go; finished installs and other games stay.
+        let discardRoot = FileManager.default.temporaryDirectory.appendingPathComponent("steam-discard-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: discardRoot) }
+        func makeFile(_ path: String) throws {
+            let url = discardRoot.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        for path in ["70/123/partial/a.part", "70/123/content/b.dat", "70/200/content/game.exe", "70/200/installed.json",
+                     "71/5/partial/c.part"] { try makeFile(path) }
+        var unfinished = SteamDownloadJob(game: SteamOwnedGame(appId: 70, name: "Half-Life"), account: "tester", options: SteamInstallOptions())
+        unfinished.status = .failed
+        var sibling = SteamDownloadJob(game: SteamOwnedGame(appId: 70, name: "Half-Life"), account: "tester", options: SteamInstallOptions())
+        sibling.status = .paused
+        try SteamManagedFiles.discardUnfinished(unfinished, among: [unfinished, sibling], from: discardRoot)
+        try check(FileManager.default.fileExists(atPath: discardRoot.appendingPathComponent("70/123/partial/a.part").path),
+                  "Partial files stay while another unfinished entry for the game exists")
+        try SteamManagedFiles.discardUnfinished(unfinished, among: [unfinished], from: discardRoot)
+        try check(!FileManager.default.fileExists(atPath: discardRoot.appendingPathComponent("70/123").path),
+                  "Removing the last unfinished entry frees its partial and content folders")
+        try check(FileManager.default.fileExists(atPath: discardRoot.appendingPathComponent("70/200/content/game.exe").path),
+                  "A finished install of the same game is not touched")
+        try check(FileManager.default.fileExists(atPath: discardRoot.appendingPathComponent("71/5/partial/c.part").path),
+                  "Another game's partial files are not touched")
+        unfinished.status = .running
+        do { try SteamManagedFiles.discardUnfinished(unfinished, among: [unfinished], from: discardRoot)
+            try check(false, "A running download was discarded")
+        } catch { checks += 1 }
         let legacyReceipt = Data("{\"appId\":42,\"name\":\"Old\",\"directory\":\"/fixture\",\"executables\":[\"game.exe\"]}".utf8)
         try check(try JSONDecoder().decode(SteamDownloadedGame.self, from: legacyReceipt).buildId == nil, "PR40 receipt compatibility")
 

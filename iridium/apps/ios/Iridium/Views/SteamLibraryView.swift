@@ -85,10 +85,25 @@ struct SteamLibraryView: View {
             }
         }
         .confirmationDialog("Remove from Downloads?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
-            Button("Remove from Downloads", role: .destructive) { if let job = removing { steam.remove(job.id) }; removing = nil }
+            if let job = removing, job.status != .completed, job.installed == nil {
+                Button("Remove and Delete Partial Files", role: .destructive) {
+                    removing = nil
+                    Task {
+                        do { try await steam.removeUnfinished(job.id) }
+                        catch { steam.error = "Could not remove the download: \(error.localizedDescription)" }
+                    }
+                }
+                Button("Remove, Keep Partial Files") { steam.remove(job.id); removing = nil }
+            } else {
+                Button("Remove from Downloads", role: .destructive) { if let job = removing { steam.remove(job.id) }; removing = nil }
+            }
             Button("Keep Download", role: .cancel) { removing = nil }
         } message: {
-            Text("The download is removed from this list. Game files, partial files, and saves stay on this device.")
+            if let job = removing, job.status != .completed, job.installed == nil {
+                Text("Deleting the partial files frees the storage they use, and the game downloads from the start if you add it again. Other games and saves are not affected.")
+            } else {
+                Text("The download is removed from this list. Game files, partial files, and saves stay on this device.")
+            }
         }
     }
 

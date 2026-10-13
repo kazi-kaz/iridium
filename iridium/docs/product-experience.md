@@ -30,8 +30,9 @@ verification and real out-of-space failures remain enforced.
 Under **Installed**, choose **Add to Library**, select the executable, and then
 use **Play** in the library. **Check for Updates** and **Repair or Update** keep
 the previous game copy. Saves inside that older copy may need manual copying;
-keep it until saves work in the new copy. **Remove from Downloads** removes only
-history. **Delete Game Files** deletes the selected copy and its library entry,
+keep it until saves work in the new copy. **Remove from Downloads** on a finished
+download removes only history. On an unfinished download it offers to delete the
+partial files too, or to keep them. **Delete Game Files** deletes the selected copy and its library entry,
 including saves inside that game folder; separate Windows-profile saves remain.
 
 **Game Options → Steam Cloud** offers opt-in saves for supported Windows
