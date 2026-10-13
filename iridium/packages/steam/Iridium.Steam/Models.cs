@@ -66,3 +66,11 @@ public sealed record Command
 public partial class SteamJson : JsonSerializerContext;
 
 public sealed class SteamFailure(string message) : Exception(message);
+
+// A finished file whose whole-file SHA-1 differs from the manifest even though every
+// chunk matched. The message carries only sizes, counts and hash prefixes, never a
+// file name or path, so it is safe to show and to log.
+public sealed class SteamVerificationFailure(string message) : Exception(message)
+{
+    public string Code => "file-hash";
+}

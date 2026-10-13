@@ -152,6 +152,29 @@ internal static class DownloadFeatureTests
             File.WriteAllText(Path.Combine(repair.Content, file.FileName), "modified copy");
             Check(File.ReadAllBytes(sourceFile).SequenceEqual(bytes), "repair output is not hard-linked to source");
 
+            var wrongHash = new DepotManifest.FileData { FileName = "wrong-hash.dat", FileHash = new byte[20], TotalSize = (ulong)bytes.Length };
+            wrongHash.Chunks.Add(new(SHA1.HashData(bytes[..8]), 0, 0, 6, 8));
+            wrongHash.Chunks.Add(new(SHA1.HashData(bytes[8..]), 0, 8, 7, 8));
+            try
+            {
+                await VerifiedFiles.Download(repair.Content, repair.Partial, wrongHash,
+                    (chunk, buffer, token) =>
+                    {
+                        bytes.AsSpan((int)chunk.Offset, (int)chunk.UncompressedLength).CopyTo(buffer);
+                        return Task.FromResult((int)chunk.UncompressedLength);
+                    }, _ => { }, default);
+                throw new Exception("A file with a wrong whole-file hash was accepted");
+            }
+            catch (SteamVerificationFailure failure)
+            {
+                var text = SteamErrors.Describe(failure, "verifying");
+                Check(SteamErrors.Code(failure) == "file-hash" && text.Contains("[steam/verifying/file-hash/")
+                    && failure.Message.Contains("manifest hash all zero") && failure.Message.Contains($"{bytes.Length} bytes"),
+                    "a whole-file hash mismatch has a typed code and says what differed");
+                Check(!failure.Message.Contains("wrong-hash"), "the file name never enters the verification diagnostic");
+            }
+            Check(!File.Exists(Path.Combine(repair.Content, wrongHash.FileName)), "a file that failed verification is not installed");
+
             Directory.Delete(Path.GetDirectoryName(original.Content)!, recursive: true);
             Check(File.ReadAllText(Path.Combine(repair.Content, file.FileName)) == "modified copy", "original removal preserves completed repair");
 

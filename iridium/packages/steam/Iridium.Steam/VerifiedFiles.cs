@@ -132,6 +132,24 @@ public static class VerifiedFiles
         return missing.ToArray();
     }
 
+    // Says what kind of mismatch this is without naming the file: a manifest hash of
+    // all zeros, a short file and a corrupted file point at different causes.
+    static async Task<string> DescribeMismatch(string path, DepotManifest.FileData file, CancellationToken ct)
+    {
+        var expected = file.FileHash.All(b => b == 0) ? "all zero" : Convert.ToHexString(file.FileHash)[..8];
+        long length = -1;
+        var actual = "unreadable";
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true);
+            length = stream.Length;
+            actual = Convert.ToHexString(await SHA1.HashDataAsync(stream, ct))[..8];
+        }
+        catch (IOException) { }
+        return FormattableString.Invariant(
+            $"A downloaded file failed verification. Resume to retry it. (manifest {file.TotalSize} bytes, {file.Chunks.Count} chunks, flags {file.Flags}, manifest hash {expected}; on disk {length} bytes, hash {actual})");
+    }
+
     public static async Task Download(string root, string staging, DepotManifest.FileData file,
         Func<DepotManifest.ChunkData, byte[], CancellationToken, Task<int>> fetch,
         Action<long> progress, CancellationToken ct, string? reuseFile = null,
@@ -186,7 +204,7 @@ public static class VerifiedFiles
         ct.ThrowIfCancellationRequested();
         if (waitForRuntime != null) await waitForRuntime(ct);
         if (!await Matches(partial, file, ct))
-            throw new SteamFailure("A downloaded file failed verification. Resume to retry it.");
+            throw new SteamVerificationFailure(await DescribeMismatch(partial, file, ct));
         ct.ThrowIfCancellationRequested();
         Directory.CreateDirectory(Path.GetDirectoryName(final)!);
         _ = SafePath(root, file.FileName);

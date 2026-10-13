@@ -23,6 +23,7 @@ public static class SteamErrors
     {
         SteamStorageFailure storage => storage.Code,
         ChunkTransferFailure transfer => transfer.Code,
+        SteamVerificationFailure verification => verification.Code,
         IOException io when IsDiskFull(io) => "disk-full",
         IOException => "io",
         _ => "request-failed",
@@ -43,6 +44,7 @@ public static class SteamErrors
         {
             SteamStorageFailure storage => (storage.Code, storage.Message),
             ChunkTransferFailure transfer => (transfer.Code, transfer.Message),
+            SteamVerificationFailure verification => (verification.Code, verification.Message),
             SteamFailure => ("steam", error.Message),
             PlatformNotSupportedException => ("platform", "The Steam module used a feature unavailable on this device. Install an updated build."),
             DllNotFoundException or EntryPointNotFoundException => ("native-library", "The Steam module is missing a required native component. Install an updated build."),
