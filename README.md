@@ -1,9 +1,5 @@
 # Iridium
 
-![iOS](https://img.shields.io/badge/iOS-supported-black?style=flat-square&logo=apple)
-![Release](https://img.shields.io/github/v/release/intraducine/iridium?style=flat-square)
-![Downloads](https://img.shields.io/github/downloads/intraducine/iridium/total?style=flat-square)
-![License](https://img.shields.io/github/license/intraducine/iridium?style=flat-square)
 
 An experimental iPhone and iPad Windows-game runtime, with a native game library and touch, keyboard, mouse, and controller integration. Compatibility varies by game and device.
 
