@@ -1343,6 +1343,50 @@ static int ios_mach_emulate_cas(uint32_t insn, uintptr_t rw_addr, uint64_t gpr[2
 static uintptr_t ios_subfloor_translate( uint64_t addr );
 static int ios_subfloor_service( ucontext_t *ctx, void *fault_addr, const char *via );
 
+/* ios-trunc-ptr:begin
+ *
+ * Truncated stack pointers (Iridium fork).
+ *
+ * Windows gives a 64-bit process whose image lacks HIGH_ENTROPY_VA stacks and
+ * heaps that sit below 4 GB, and a game built for that can keep a pointer in a
+ * 32-bit slot: the caller does `mov ecx,[rax]` and the callee dereferences rcx.
+ * MX Bikes does exactly that with the address of a local (rcx=0x3083d320 while
+ * the stack address is 0x13083d320; the same function, the same fault, in two
+ * runs). iOS keeps the low 4 GB out of the address space, so the stack can
+ * never be placed there and the dereference faults.
+ *
+ * The truncated value keeps the low 32 bits of the real address, and a stack
+ * object is always within a few MB of the guest RSP, so the missing high bits
+ * are recoverable: take them from RSP and keep the candidate only if it lands
+ * in a plausible stack window around RSP. The caller still checks that the
+ * candidate is mapped before touching it. Pure function so a host test can
+ * compile it on its own; guest_rsp is FEX's RSP register (x23) at the fault.
+ *
+ * Returns the full address, or 0 when `addr` cannot be a truncated stack
+ * pointer. The window is [rsp - 64 KB, rsp + 16 MB): the default stack is
+ * 8 MB, and a slot boundary between RSP and the object is covered by also
+ * trying the neighbouring 4 GB slots. */
+#define IOS_TRUNC_PTR_BELOW   0x10000ull
+#define IOS_TRUNC_PTR_ABOVE   0x1000000ull
+static uint64_t ios_trunc_ptr_candidate( uint64_t guest_rsp, uint64_t addr )
+{
+    const uint64_t slot = 0x100000000ull;
+    uint64_t hi, cand;
+    int i;
+
+    if (addr < 0x10000ull || addr >= slot) return 0;   /* NULL-ish or not low */
+    if (guest_rsp < slot) return 0;                    /* no high bits to borrow */
+    hi = guest_rsp & ~(slot - 1);
+    for (i = -1; i <= 1; i++)
+    {
+        cand = (uint64_t)((int64_t)hi + (int64_t)i * (int64_t)slot) + addr;
+        if (cand >= guest_rsp - IOS_TRUNC_PTR_BELOW && cand < guest_rsp + IOS_TRUNC_PTR_ABOVE)
+            return cand;
+    }
+    return 0;
+}
+/* ios-trunc-ptr:end */
+
 /* ml974: is the ucontext's NEON state real?
  *
  * The Mach path builds a synthetic ucontext, memsets it to zero and fills
@@ -1964,6 +2008,7 @@ static void *ios_mach_exception_thread( void *arg )
                  * an access that starts inside an allocation but runs off its
                  * end is still refused there rather than resolved. */
                 int sf_low = 0;
+                int sf_trunc = 0;
                 /* literal because IOS_SUBFLOOR_FLOOR is defined further down
                  * this file; same value (0x100000000). */
                 if (!sf_real && (uint64_t)fault_addr < 0x100000000ull)
@@ -1973,9 +2018,16 @@ static void *ios_mach_exception_thread( void *arg )
                                                        unsigned long long *real_out,
                                                        void **owner_out );
                     sf_low = ios_lowalloc_translate( (uint64_t)fault_addr, 1, NULL, NULL );
+                    /* Iridium: a truncated stack pointer (see ios_trunc_ptr_candidate).
+                     * x23 is FEX's guest RSP register, so this only means
+                     * something for a fault taken in translated code; the service
+                     * function re-checks the PC before it acts on it. */
+                    if (!sf_low)
+                        sf_trunc = ios_trunc_ptr_candidate( (uint64_t)state.__x[23],
+                                                            (uint64_t)fault_addr ) != 0;
                 }
 
-                if (sf_real || sf_low)
+                if (sf_real || sf_low || sf_trunc)
                 {
                     /* The emulators take a ucontext. arm_thread_state64_t IS the
                      * struct a ucontext's mcontext embeds as __ss, and
@@ -11181,9 +11233,30 @@ static int ios_subfloor_service( ucontext_t *ctx, void *fault_addr, const char *
     {
         extern int ios_lowalloc_translate( unsigned long long addr, unsigned long long len,
                                            unsigned long long *real_out, void **owner_out );
+        extern void *ios_jit_rx_base_global;
+        extern size_t ios_jit_pool_size_global;
         unsigned long long lo_real = 0;
         void *lo_owner = NULL;
-        if (ios_lowalloc_translate( addr, span, &lo_real, &lo_owner ))
+        uintptr_t tp_pc = (uintptr_t)PC_sig(ctx), tp_rx = (uintptr_t)ios_jit_rx_base_global;
+        uint64_t tp_real = 0;
+
+        /* Iridium: a truncated stack pointer. x23 is FEX's guest RSP only in
+         * translated code, so the PC has to be inside the JIT pool. */
+        if (tp_rx && tp_pc >= tp_rx && tp_pc < tp_rx + ios_jit_pool_size_global &&
+            !ios_lowalloc_translate( addr, 1, NULL, NULL ))
+            tp_real = ios_trunc_ptr_candidate( REGn_sig( 23, ctx ), addr );
+
+        if (tp_real)
+        {
+            static unsigned long long tp_hits;
+            real = (uintptr_t)tp_real;
+            if (tp_hits++ < 16 || (tp_hits & 0xFFF) == 0)
+                dprintf( 2, "[trunc-ptr] resolved %llu access(es) through a 32-bit-truncated stack "
+                         "pointer; latest guest %#llx -> %#llx (guest rsp %#llx, pc %#llx, via=%s)\n",
+                         tp_hits, (unsigned long long)addr, (unsigned long long)tp_real,
+                         (unsigned long long)REGn_sig( 23, ctx ), (unsigned long long)tp_pc, via );
+        }
+        else if (ios_lowalloc_translate( addr, span, &lo_real, &lo_owner ))
         {
             static unsigned long long la_hits;
             real = (uintptr_t)lo_real;

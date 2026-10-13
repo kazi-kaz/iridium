@@ -406,6 +406,25 @@ writes those globals after the grace period; until it is found, each exited
 child costs about 2 MB of pool. `MADEIRA_POOL_REUSE_NTDLL=1` restores reuse.
 Host check: `build/host-tests/check-ntdll-quarantine.py`.
 
+## Truncated 32-bit stack pointers
+
+`signal_arm64_ios.c` recovers a stack pointer that a game keeps in a 32-bit
+slot. Windows gives a 64-bit process whose image lacks HIGH_ENTROPY_VA stacks
+and heaps below 4 GB, and some games rely on it. MX Bikes (2026-10-12, two runs
+with different stack placement) does `mov ecx,[rax]` on a local holding the
+address of another local, then dereferences rcx: 0x3083d320 for the stack
+address 0x13083d320. iOS has no memory below 4 GB, so the read faulted and
+ended the game. For a fault below 4 GB in translated code that nothing else
+claims, the sub-4 GB service path now takes the high bits from the guest RSP
+(FEX register x23), accepts the candidate only within 64 KB below and 16 MB
+above RSP, checks that it is mapped, and emulates the access against it. Each
+such access costs one Mach exception, and only a stack pointer is recovered:
+a truncated heap pointer still faults. Pointers that were never truncated, null
+dereferences and faults outside the JIT pool take the previous path. Log lines
+start with `[trunc-ptr]`. Host check: `build/host-tests/check-trunc-ptr.py`,
+which compiles the production function and runs it on the logged addresses. It
+is not a device test.
+
 ## Madeira #144: no conhost.exe in ARM64EC sessions
 
 `process_ios.c` takes Madeira `9d13d867a7bceb707a1dcdb46808cb2df43ac50b`
