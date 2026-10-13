@@ -7,7 +7,7 @@ import Foundation
 /// installs, can use `Documents/GameConfigs/<game folder name>.cfg` instead.
 /// The file uses madeira.cfg syntax; every key it sets, including `env.` lines,
 /// wins over madeira.cfg for that game only. Iridium itself reads
-/// `jit-pool-mb` (128, 256 or 512), which replaces the JIT Memory Limit setting
+/// `jit-pool-mb` (128, 256, 512 or 1024), which replaces the JIT Memory Limit setting
 /// for this game, and `steam-client` / `steam-client-args` (MadeiraSteamClient).
 /// The native readers find the file through MADEIRA_GAME_CFG
 /// (build/madeira_cfg.h). Game preparation leaves iridium.cfg out of the
@@ -17,7 +17,7 @@ enum MadeiraGameConfig {
     static let sharedFolderName = "GameConfigs"
     static let environmentKey = "MADEIRA_GAME_CFG"
     static let jitPoolKey = "jit-pool-mb"
-    static let allowedJITPoolMB: Set<Int> = [128, 256, 512]
+    static let allowedJITPoolMB: Set<Int> = [128, 256, 512, 1024]
 
     static func locate(gameRoot: URL, documents: URL? = defaultDocuments()) -> URL? {
         let fm = FileManager.default

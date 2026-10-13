@@ -106,8 +106,11 @@ jit-pool-mb = 512
 env.FEX_MULTIBLOCK = 0
 ```
 
-`jit-pool-mb` (128, 256 or 512) replaces the JIT Memory Limit setting for that
-game. `env.` lines are exported like those in `madeira.cfg`; the log shows each
+`jit-pool-mb` (128, 256, 512 or 1024) replaces the JIT Memory Limit setting for that
+game. 1024 is for large games that run out of JIT memory (the log says
+`[jit-pool] EXHAUSTED`, as Pseudoregalia did at 512); it needs a device with
+at least 2 GB of free memory and falls back to 512 otherwise. `env.` lines are
+exported like those in `madeira.cfg`; the log shows each
 as `[madeira-env] game NAME=value`. `env.WINEDLLOVERRIDES` lines, in either
 file, are appended to the controller bridge's XInput overrides instead of
 replacing them; an empty value clears them. The file is not copied into the

@@ -491,7 +491,7 @@ private struct RuntimeLaunchPreferences: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("JIT Memory Limit") {
-                ForEach([0, 128, 256, 512], id: \.self) { mb in
+                ForEach([0, 128, 256, 512, 1024], id: \.self) { mb in
                     MenuButton { pool = mb } label: {
                         HStack {
                             Text(mb == 0 ? "Automatic" : "\(mb) MB")

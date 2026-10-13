@@ -141,8 +141,10 @@ enum StikJITHelper {
     static func allocateAdaptivePool() -> (rx: UnsafeMutableRawPointer, rw: UnsafeMutableRawPointer, size: Int)? {
         let requested = UserDefaults.standard.integer(forKey: "IridiumJITPoolMB")
         let availableMB = Int(os_proc_available_memory() / (1024 * 1024))
-        let cap = [128, 256, 512].contains(requested) ? requested : 512
-        for mb in [512, 256, 128] where mb <= cap && mb <= availableMB / 2 {
+        // 1024: opt-in for large games (Iridium setting or iridium.cfg jit-pool-mb).
+        // Pseudoregalia exhausted 512 MB (2026-10-12); Madeira ran 896-1152 MB pools.
+        let cap = [128, 256, 512, 1024].contains(requested) ? requested : 512
+        for mb in [1024, 512, 256, 128] where mb <= cap && mb <= availableMB / 2 {
             if let pool = allocatePool(poolSize: mb * 1024 * 1024) { return pool }
         }
         return nil
