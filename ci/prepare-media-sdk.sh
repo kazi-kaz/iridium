@@ -46,6 +46,8 @@ apply_source_patch() {
 for patch in cerbero-gperf-cxx14.patch cerbero-assets-library.patch cerbero-source-manifest.patch cerbero-cargo-source-cache.patch cerbero-meson-source-cache.patch cerbero-spandsp-mirror.patch; do
     apply_source_patch "$patch"
 done
+# linuxtv.org now serves a different zbar-0.23.93.tar.gz; the pinned checksum is kept.
+apply_source_patch cerbero-zbar-mirror.patch
 "$PACKAGING_PYTHON" "$ROOT/ci/check-media-source-package.py" "$CERBERO"
 [ "${1:-}" != --preflight ] || exit 0
 cd "$CERBERO"

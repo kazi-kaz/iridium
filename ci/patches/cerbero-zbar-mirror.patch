@@ -1,0 +1,12 @@
+diff --git a/recipes/zbar.recipe b/recipes/zbar.recipe
+--- a/recipes/zbar.recipe
++++ b/recipes/zbar.recipe
+@@ -7,7 +7,7 @@ class Recipe(recipe.Recipe):
+     version = '0.23.93'
+     btype = BuildType.MESON
+     stype = SourceType.TARBALL
+-    url = 'https://linuxtv.org/downloads/zbar/zbar-%(version)s.tar.gz'
++    url = 'https://gstreamer.freedesktop.org/src/mirror/zbar-%(version)s.tar.gz'
+     tarball_checksum = '78ae427a529f0399561bc198de5c2c7ca3f11d05fa9e903e65e501168433d218'
+     files_libs = ['libzbar']
+     files_devel = ['include/zbar.h', '%(libdir)s/pkgconfig/zbar.pc']

@@ -16,6 +16,7 @@ MEDIA_INPUTS = ('ci/prepare-media-sdk.sh', 'ci/fetch-runtime-inputs.py',
                 'ci/runtime-inputs.json', 'ci/patches/cerbero-gperf-cxx14.patch',
                 'ci/patches/cerbero-assets-library.patch', 'ci/patches/cerbero-cargo-source-cache.patch', 'ci/patches/cerbero-meson-source-cache.patch',
                 'ci/patches/cerbero-spandsp-mirror.patch',
+                'ci/patches/cerbero-zbar-mirror.patch',
                 'iridium/apps/ios/stikjit.yml',
                 'check-public-source.py')
 SPANDSP_MIRROR_PATCH = 'ci/patches/cerbero-spandsp-mirror.patch'
