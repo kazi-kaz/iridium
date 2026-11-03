@@ -6,7 +6,8 @@ diff --git a/recipes/zbar.recipe b/recipes/zbar.recipe
      btype = BuildType.MESON
      stype = SourceType.TARBALL
 -    url = 'https://linuxtv.org/downloads/zbar/zbar-%(version)s.tar.gz'
-+    url = 'https://gstreamer.freedesktop.org/src/mirror/zbar-%(version)s.tar.gz'
-     tarball_checksum = '78ae427a529f0399561bc198de5c2c7ca3f11d05fa9e903e65e501168433d218'
+-    tarball_checksum = '78ae427a529f0399561bc198de5c2c7ca3f11d05fa9e903e65e501168433d218'
++    url = 'https://deb.debian.org/debian/pool/main/z/zbar/zbar_%(version)s.orig.tar.gz'
++    tarball_checksum = '212dfab527894b8bcbcc7cd1d43d63f5604a07473d31a5f02889e372614ebe28'
      files_libs = ['libzbar']
      files_devel = ['include/zbar.h', '%(libdir)s/pkgconfig/zbar.pc']
