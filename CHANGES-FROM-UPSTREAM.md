@@ -490,6 +490,57 @@ with `STATUS_NO_MEMORY`, a 0x11000-byte NLS section found no room in a window
 with a 2 GB gap, and `ucrtbase.dll` failed to initialise (`c0000142`). The
 existing logs cannot tell which step failed. Diagnostics only.
 
+## Ren'Py session fixes (The Tribe, 2026-11-03)
+
+Found running The Tribe (Ren'Py 8, Python 3.9) on build 25.1. Each item had a
+game-folder workaround that confirmed the cause on device; these changes make
+the workarounds unnecessary. They are not yet device-tested.
+
+- `build/ntdll-unix/process_ios.c` refuses `cmd.exe` whose `/c` command is
+  exactly `ver` (or Python's fallbacks `command /c ver`, `cmd /c ver`).
+  CPython 3.9's `platform.win32_ver()` runs it on every call and Ren'Py calls it
+  three times at startup. Each child cost about 50 MB of the 256 MB JIT pool
+  that is not given back, so the game then crashed loading its own DLLs.
+  Python falls back to `sys.getwindowsversion()`. `env.MADEIRA_CMD_VER=1`
+  starts it. Log: `[proc-gate] REFUSING spawn ... cmd.exe /c ver`. Host check:
+  `build/host-tests/check-cmd-ver.py`.
+- `build/ntdll-unix/virtual_ios.c`: when an image section finds no room in the
+  JIT pool, the mapping now fails with `STATUS_NO_MEMORY`. It used to be mapped
+  anyway with non-executable code, and the first call into it faulted.
+- `build/ntdll-unix/signal_arm64_ios.c` and `virtual_ios.c`: the Mach exception
+  registry (512 rows) and the x18 trampoline slots (256) are reused once their
+  thread has exited. Rows were never given back; Ren'Py starts a thread per
+  sound, and after about 70 minutes the next thread went unregistered, the lock
+  census took it for the dead owner of its recycled TEB and released its FEX
+  lock, and the game hung. Trampoline slots past the 256th all used slot 0,
+  the first thread's. A new thread first takes a dead row with its own
+  (recycled) TEB, then a free row, then any dead row; row and slot 0 are never
+  reused. Log: `[thread-registry] reused row`, `[tramp-slot] reused slot`.
+  Host check: `build/host-tests/check-thread-slot-reuse.py`.
+- `build/win32u-unix/message_ios.c`: a button press on a window that cannot
+  be brought to the front is delivered, and the window is made active in its
+  own thread. Wine discarded it, so taps did nothing in Ren'Py while drags
+  worked (SDL rebuilds a press from `MK_LBUTTON` on mouse moves). Log:
+  `[click-activate]` with the error code.
+  `build/wineserver/queue_ios.c` no longer refuses a foreground change with
+  the foreground lock (one game per session; nothing to protect). Log:
+  `[fg-lock]`.
+- `build/win32u-unix/driver_ios.c`: with no foreground window, touches and
+  `SetCursorPos` are mapped through the topmost visible window instead of
+  taking client coordinates as screen coordinates (taps landed up and left of
+  the touch in a framed window).
+- `build/ntdll-unix/audio_null_ios.c`: the WASAPI event timer paces on absolute
+  `mach_absolute_time` deadlines at `USER_INTERACTIVE`. A relative 10 ms sleep
+  ran at about 91 events per second; SDL writes one period per event, so ~9 %
+  of playback was silence (stutter).
+- `app/Madeira/WineProcessBridge.m`: the guest main thread is created with QoS
+  `USER_INITIATED` instead of a fixed scheduling priority 20, which opted it
+  out of QoS so its `USER_INTERACTIVE` promotion did not apply; device logs
+  showed it almost only on efficiency cores. The log now prints the
+  promotion's result.
+
+Source checks for the last five items: `build/host-tests/check-renpy-session-fixes.py`.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

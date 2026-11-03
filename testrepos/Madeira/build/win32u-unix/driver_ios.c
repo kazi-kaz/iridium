@@ -139,10 +139,35 @@ static void winios_log_input(const char *kind, unsigned int code, NTSTATUS statu
     }
 }
 
+/* The window a touch belongs to when no window is foreground: the topmost
+ * visible top-level window larger than a few pixels (skips the 1x1 IME and
+ * 10x10 helper windows). Before this, a game whose window never became
+ * foreground got its client coordinates used as screen coordinates, so in a
+ * framed window every tap landed up and to the left of the touch (Ren'Py,
+ * The Tribe, 2026-11-03). */
+static HWND winios_input_fallback_window(void)
+{
+    HWND desktop = get_desktop_window(), hwnd;
+    int guard = 0;
+
+    if (!desktop) return 0;
+    for (hwnd = get_window_relative( desktop, GW_CHILD ); hwnd && guard < 256;
+         hwnd = get_window_relative( hwnd, GW_HWNDNEXT ), guard++)
+    {
+        RECT rect;
+
+        if (!is_window_visible( hwnd )) continue;
+        if (!get_window_rect( hwnd, &rect, get_thread_dpi() )) continue;
+        if (rect.right - rect.left > 16 && rect.bottom - rect.top > 16) return hwnd;
+    }
+    return 0;
+}
+
 void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_data, HWND hwnd)
 {
     INPUT input;
     HWND target = winios_desktop_mode() ? NULL : NtUserGetForegroundWindow();
+    if (!target && !winios_desktop_mode()) target = winios_input_fallback_window();
     if (target && (flags & MOUSEEVENTF_ABSOLUTE))
     {
         POINT position = {x, y};
@@ -1385,6 +1410,7 @@ static BOOL nulldrv_SetCursorPos( INT x, INT y )
     {
         POINT position = {x, y};
         HWND target = winios_desktop_mode() ? NULL : NtUserGetForegroundWindow();
+        if (!target && !winios_desktop_mode()) target = winios_input_fallback_window();
         if (target) screen_to_client(target, &position);
         winios_cursor_move(position.x, position.y);
     }

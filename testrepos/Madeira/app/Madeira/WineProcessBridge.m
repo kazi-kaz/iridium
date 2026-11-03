@@ -840,8 +840,13 @@ static void *wine_process_thread(void *arg) {
          * USER_INTERACTIVE so it schedules on P-cores with minimal kernel
          * timer coalescing (same rationale as start_thread in
          * thread_ios.c — default QoS costs tens of ms of sleep leeway). */
-        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
-        LOG("Wine process thread started");
+        {
+            int qos_rc = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+            qos_class_t qos = QOS_CLASS_UNSPECIFIED;
+            int rel = 0;
+            pthread_get_qos_class_np(pthread_self(), &qos, &rel);
+            LOG("Wine process thread started (QoS set rc=%d, now 0x%x)", qos_rc, (unsigned)qos);
+        }
 
         /* ml588: seeding itself now happens in wineserver_start(), BEFORE the
          * server loads the registry. Kept here as a safety net for any path
@@ -1760,11 +1765,17 @@ int wine_process_start(const char *prefix_path) {
     // Inject wineserver side — the event loop will pick this up
     wineserver_inject_client_fd(pair[0]);
 
-    // Lower priority so Wine init doesn't starve the main thread
+    // The guest main thread runs on this pthread. It used to be created with
+    // pthread_attr_setschedparam(priority 20) "so Wine init doesn't starve the
+    // main thread". An explicit scheduling priority opts a thread out of QoS,
+    // so the USER_INTERACTIVE promotion in wine_process_thread did not take:
+    // every device log (The Wild Within, The Tribe) showed this thread almost
+    // only on E-cores, and Ren'Py, which renders and runs Python on it, drew
+    // ~5 fps at times. Create it with a QoS class instead (USER_INITIATED,
+    // one step below the UI thread), and let it promote itself as before.
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    struct sched_param sched = { .sched_priority = 20 };  // lower than default (31)
-    pthread_attr_setschedparam(&attr, &sched);
+    pthread_attr_set_qos_class_np(&attr, QOS_CLASS_USER_INITIATED, 0);
 
     int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);
     pthread_attr_destroy(&attr);

@@ -33,6 +33,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <mach/mach_time.h>
+#include <pthread/qos.h>
 #include <unistd.h>
 #include <time.h>
 #include <AudioToolbox/AudioToolbox.h>
@@ -501,6 +502,12 @@ static _Atomic uint32_t g_call_counter[NULL_AUDIO_FN_COUNT];
 static uint64_t mach_to_ns(uint64_t mach) {
     if (!g_timebase.denom) mach_timebase_info(&g_timebase);
     return mach * g_timebase.numer / g_timebase.denom;
+}
+
+/* The 10 ms device period (ios_get_device_period) in mach_absolute_time units. */
+static uint64_t ios_audio_period_mach(void) {
+    if (!g_timebase.denom) mach_timebase_info(&g_timebase);
+    return (uint64_t)10000000ull * g_timebase.denom / g_timebase.numer;
 }
 
 static uint64_t elapsed_ns_since(uint64_t mach_start) {
@@ -1220,10 +1227,25 @@ static NTSTATUS ios_timer_loop(void *args) {
      * ring; exit when the stream dies. */
     struct timer_loop_params *p = args;
     struct ios_stream *s = stream_from_handle(p->stream);
+    uint64_t next;
     if (!s) return STATUS_SUCCESS;
     LOG_FN_CALL(9, "timer_loop");
+    /* Pace on absolute deadlines. A relative 10 ms sleep per loop drifted to
+     * ~91 events/s on device, and SDL's WASAPI backend writes exactly one
+     * period per event, so it delivered ~91 % of real time and the rest played
+     * as underrun silence: steady stutter (The Tribe, 2026-11-03,
+     * "[ios_audio] ml1065" ~870k of 960k samples per 10 s). Deadlines advance by
+     * one period whatever the wake-up latency; after a long stall (more than
+     * 5 periods behind) the schedule restarts from now instead of firing a
+     * burst. USER_INTERACTIVE keeps the timer off coalesced E-core wake-ups. */
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    next = mach_absolute_time();
     while (s->valid) {
-        usleep(10000); /* device period, 10 ms */
+        uint64_t period = ios_audio_period_mach(), now;
+        next += period;
+        now = mach_absolute_time();
+        if (now > next + 5 * period) next = now + period;
+        if (next > now) mach_wait_until(next);
         if (s->event && s->started)
             NtSetEvent(s->event, NULL);
     }

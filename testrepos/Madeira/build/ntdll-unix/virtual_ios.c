@@ -2871,11 +2871,16 @@ void *ios_jit_teb_trampoline = NULL;  /* RX address of slot 0 trampoline (offset
 #define IOS_JIT_MAX_SLOTS 256         /* Max threads with trampolines */
 static volatile int32_t ios_jit_next_slot = 0;  /* Next slot to allocate */
 
-/* Allocate a per-thread trampoline slot. Returns slot index (0-based). */
+/* Allocate a per-thread trampoline slot. Returns slot index (0-based), or -1
+ * once all slots have been handed out. It used to return slot 0 then, so every
+ * thread after the 256th wrote its own TEB over the first thread's slot and
+ * the first thread's next trampoline return loaded another thread's TEB into
+ * x18. The caller now reuses the slot of an exited thread instead
+ * (ios_alloc_thread_trampoline in signal_arm64_ios.c). */
 int ios_jit_alloc_trampoline_slot(void)
 {
     int slot = __sync_fetch_and_add(&ios_jit_next_slot, 1);
-    if (slot >= IOS_JIT_MAX_SLOTS) return 0;  /* fallback to slot 0 */
+    if (slot >= IOS_JIT_MAX_SLOTS) return -1;
 
     /* Write trampoline code to this slot's RW view */
     if (ios_jit_rw_base_global)
@@ -2888,6 +2893,11 @@ int ios_jit_alloc_trampoline_slot(void)
             sys_icache_invalidate((char *)ios_jit_rx_base_global + slot * 16 + 8, 8);
     }
     return slot;
+}
+
+int ios_jit_trampoline_slot_limit(void)
+{
+    return IOS_JIT_MAX_SLOTS;
 }
 
 /* Write TEB address to a specific trampoline slot */
@@ -11467,6 +11477,11 @@ static int ios_guest_image_is_host_data( const void *base, size_t size )
  * the two is lost.
  *
  * MADEIRA_GUEST_RWX_DATA=0 restores the previous behaviour. */
+/* Set by mprotect_exec when an image section found no room in the JIT pool,
+ * so map_image_into_view can fail the mapping instead of handing out a module
+ * whose code is not executable. */
+static __thread int ios_jit_image_exhausted;
+
 static int ios_alloc_ec_code;   /* set by allocate_virtual_memory under virtual_mutex */
 
 static int ios_guest_rwx_data_enabled(void)
@@ -12489,6 +12504,7 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
                         (unsigned long)jit_pool_offset, (unsigned long)jit_pool_size,
                         (unsigned long)ios_jit_tail_reserved, ios_pool_free_count);
                 mprotect( base, size, PROT_READ );
+                ios_jit_image_exhausted = 1;
                 errno = ENOMEM;
                 return -1;
             }
@@ -16611,7 +16627,19 @@ static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRIN
         if (sec[si].Characteristics & IMAGE_SCN_MEM_WRITE) prot |= PROT_WRITE;
         ERR("iOS: eager JIT-copy section %.8s (addr=%p size=0x%lx)\n",
             sec[si].Name, sec_addr, (unsigned long)sec_size);
-        mprotect_exec(sec_addr, sec_size, prot);
+        ios_jit_image_exhausted = 0;
+        if (mprotect_exec(sec_addr, sec_size, prot) && ios_jit_image_exhausted)
+        {
+            /* The pool is full. Mapping the image anyway left its code in a
+             * non-executable view: the first call into it faulted c0000005
+             * and so did every later DLL (The Tribe, 2026-11-03: imm32,
+             * mmdevapi, dsound, opengl32 after "[jit-pool] EXHAUSTED"). Fail
+             * the mapping so the load fails cleanly with STATUS_NO_MEMORY. */
+            ERR( "[jit-pool] %s not mapped: no room in the JIT pool (STATUS_NO_MEMORY)\n",
+                 nt_name ? debugstr_us( nt_name ) : "image" );
+            status = STATUS_NO_MEMORY;
+            break;
+        }
     }
     /* iOS: data sections were mapped MAP_PRIVATE + PROT_READ|PROT_WRITE
      * (see map_file_into_view) so they're already mprotect-able. No

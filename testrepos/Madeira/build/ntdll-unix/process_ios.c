@@ -870,6 +870,63 @@ static int ec_conhost_refuse( int arm64ec_session, const char *env, const WCHAR 
 {
     return arm64ec_session && !(env && env[0] == '1') && ios_image_name_is( image, image_len, "conhost.exe" );
 }
+
+/* cmd.exe started only to print "ver". CPython 3.9's platform.win32_ver()
+ * runs `cmd.exe /c "ver"` on every call, uncached, and Ren'Py 8 calls it three
+ * times at startup. Each child copies ~35 MB of DLLs into the 256 MB JIT pool
+ * and takes a 16 MB code buffer; ranges freed by an exited child lose their
+ * exec permission and are dropped, so three children filled the pool and the
+ * game then crashed loading its own DLLs (The Tribe, 2026-11-03). Refused,
+ * CreateProcess fails and Python falls back to sys.getwindowsversion(), which
+ * is what it does when "ver" fails on Windows; its two fallback spellings
+ * ("command /c ver", "cmd /c ver") are refused too. MADEIRA_CMD_VER=1 starts
+ * them anyway. Only an exact "ver" payload matches; any other cmd.exe runs. */
+static int ios_wstr_eq_nocase( const WCHAR *s, int len, const char *lit )
+{
+    int n = (int)strlen( lit ), k;
+
+    if (len != n) return 0;
+    for (k = 0; k < n; k++)
+    {
+        WCHAR c = s[k];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if (c != (WCHAR)lit[k]) return 0;
+    }
+    return 1;
+}
+
+static int cmd_ver_refuse( const char *env, const WCHAR *image, int image_len,
+                           const WCHAR *cmdline, int cmd_len )
+{
+    static const char * const payloads[] = { "ver", "command /c ver", "cmd /c ver" };
+    int k, start, end;
+    unsigned int p;
+
+    if (env && env[0] == '1') return 0;
+    if (!ios_image_name_is( image, image_len, "cmd.exe" ) || !cmdline || cmd_len <= 0) return 0;
+    /* skip argv[0], quoted or not */
+    k = 0;
+    while (k < cmd_len && cmdline[k] == ' ') k++;
+    if (k < cmd_len && cmdline[k] == '"')
+    {
+        for (k++; k < cmd_len && cmdline[k] != '"'; k++) ;
+        if (k < cmd_len) k++;
+    }
+    else while (k < cmd_len && cmdline[k] != ' ') k++;
+    while (k < cmd_len && cmdline[k] == ' ') k++;
+    /* "/c" or "/C" */
+    if (k + 2 > cmd_len || cmdline[k] != '/' || (cmdline[k + 1] != 'c' && cmdline[k + 1] != 'C')) return 0;
+    k += 2;
+    if (k < cmd_len && cmdline[k] != ' ' && cmdline[k] != '"') return 0;
+    while (k < cmd_len && cmdline[k] == ' ') k++;
+    start = k;
+    end = cmd_len;
+    while (end > start && (cmdline[end - 1] == ' ' || cmdline[end - 1] == 0)) end--;
+    if (end - start >= 2 && cmdline[start] == '"' && cmdline[end - 1] == '"') { start++; end--; }
+    for (p = 0; p < sizeof(payloads) / sizeof(payloads[0]); p++)
+        if (ios_wstr_eq_nocase( cmdline + start, end - start, payloads[p] )) return 1;
+    return 0;
+}
 #endif
 
 /**********************************************************************
@@ -1058,6 +1115,17 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         dprintf(2, "[proc-gate] REFUSING spawn of %s (conhost in an ARM64EC session: it is aarch64 and "
                 "its threads have no CPU area for the emulator loaded into it; env.MADEIRA_EC_CONHOST=1 "
                 "starts it)\n", debugstr_us( &params->ImagePathName ));
+        return STATUS_ACCESS_DENIED;
+    }
+
+    /* cmd.exe /c ver is refused (see cmd_ver_refuse); MADEIRA_CMD_VER=1 starts it. */
+    if (cmd_ver_refuse( getenv( "MADEIRA_CMD_VER" ), params->ImagePathName.Buffer,
+                        params->ImagePathName.Length / sizeof(WCHAR),
+                        params->CommandLine.Buffer, params->CommandLine.Length / sizeof(WCHAR) ))
+    {
+        dprintf(2, "[proc-gate] REFUSING spawn of %s (cmd.exe /c ver: each child costs ~50 MB of JIT "
+                "pool that is not given back; the caller falls back to GetVersionEx; "
+                "env.MADEIRA_CMD_VER=1 starts it)\n", debugstr_us( &params->CommandLine ));
         return STATUS_ACCESS_DENIED;
     }
 

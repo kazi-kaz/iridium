@@ -2858,7 +2858,25 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
                     /* fall through */
                 case MA_ACTIVATE:
                 case 0:
-                    if (!set_foreground_window( hwndTop, TRUE, FALSE )) eat_msg = TRUE;
+                    if (!set_foreground_window( hwndTop, TRUE, FALSE ))
+                    {
+                        /* iOS: Wine discards the press when the window can't be
+                         * brought to the front. Iridium shows one game and nothing
+                         * else can be in front of it, so a failure here only ever
+                         * cost the game its taps: Ren'Py's window never became
+                         * foreground, every tap's button-down was eaten, and only
+                         * drags worked (SDL rebuilds a press from MK_LBUTTON on
+                         * WM_MOUSEMOVE). Make the window active within its own
+                         * thread instead and deliver the press. */
+                        static unsigned int fg_fail;
+                        DWORD error = NtCurrentTeb()->LastErrorValue;
+                        if (get_window_thread( hwndTop, NULL ) == GetCurrentThreadId())
+                            set_active_window( hwndTop, NULL, TRUE, TRUE, 0 );
+                        if (++fg_fail <= 8 || !(fg_fail & 255))
+                            ERR( "[click-activate] set_foreground_window(%p) failed (error %u, #%u); "
+                                 "press delivered, window made active in its thread\n",
+                                 hwndTop, (unsigned int)error, fg_fail );
+                    }
                     break;
                 default:
                     WARN( "unknown WM_MOUSEACTIVATE code %d\n", ret );

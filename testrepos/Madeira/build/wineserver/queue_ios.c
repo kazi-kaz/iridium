@@ -3840,8 +3840,19 @@ DECL_HANDLER(set_foreground_window)
         if (!is_current_process_foreground( desktop ) && queue->input && desktop->foreground_input &&
             queue->input->user_time < desktop->foreground_input->user_time)
         {
-            set_error( STATUS_ACCESS_DENIED );
-            goto done;
+            /* iOS: the foreground lock keeps one desktop app from stealing focus
+             * from another. Iridium shows a single game session, so the only
+             * effect was a game window that could never come to the front after
+             * an earlier window of the session had been foreground (Ren'Py's
+             * splash): no foreground window, so taps were placed in the wrong
+             * spot and their button-downs were discarded. Allow it; log the
+             * first few. */
+            static unsigned int lock_skipped;
+            if (++lock_skipped <= 8)
+                fprintf( stderr, "[fg-lock] allowing foreground change by pid %04x (foreground pid %04x, "
+                         "user_time %lld < %lld), #%u\n", current->process->id, desktop->foreground_pid,
+                         (long long)queue->input->user_time,
+                         (long long)desktop->foreground_input->user_time, lock_skipped );
         }
     }
 

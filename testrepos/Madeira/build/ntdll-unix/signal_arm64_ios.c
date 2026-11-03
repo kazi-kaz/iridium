@@ -677,6 +677,96 @@ int ios_thread_registry_range_busy( uintptr_t base, uintptr_t size )
     return 0;
 }
 
+/* Has this Mach thread exited? Registry names are pinned (+4 send refs at
+ * registration), so an exited thread's name stays a dead name and is not
+ * recycled; thread_info on it fails with one of these. Any other result,
+ * including success, counts as alive. Same rule as
+ * ios_thread_registry_range_busy. */
+static int ios_thread_port_dead( thread_t port )
+{
+    struct thread_basic_info info;
+    mach_msg_type_number_t length = THREAD_BASIC_INFO_COUNT;
+    kern_return_t kr;
+
+    if (!port) return 1;
+    kr = thread_info( port, THREAD_BASIC_INFO, (thread_info_t)&info, &length );
+    return kr == KERN_INVALID_ARGUMENT || kr == MACH_SEND_INVALID_DEST || kr == KERN_TERMINATED;
+}
+
+/* Claim the row of an exited thread for pe_thread. With want_teb set, only a
+ * row naming that TEB qualifies (Wine recycles TEBs); otherwise any row of an
+ * exited or purged thread. Row 0 is never taken: it is the slot-0 fallback.
+ * The row is claimed with a compare-and-swap of its port to
+ * IOS_THREAD_ROW_CLAIMED, so two threads registering at once cannot take the
+ * same row; no lookup matches that value. Returns the row with its TEB
+ * cleared, for the caller to fill (it stores the real port last); -1 if none. */
+#define IOS_THREAD_ROW_CLAIMED ((thread_t)~0u)
+static int ios_thread_registry_reuse_dead( int count, uintptr_t want_teb, thread_t pe_thread )
+{
+    static unsigned int reused;
+    int i;
+
+    for (i = 1; i < count; i++)
+    {
+        thread_t old = ios_thread_registry[i].mach_thread;
+        uintptr_t old_teb = ios_thread_registry[i].teb;
+
+        if (old == pe_thread || old == IOS_THREAD_ROW_CLAIMED) continue;
+        if (want_teb && old_teb != want_teb) continue;
+        if (!ios_thread_port_dead( old )) continue;
+        if (!__sync_bool_compare_and_swap( &ios_thread_registry[i].mach_thread, old,
+                                           IOS_THREAD_ROW_CLAIMED )) continue;
+        ios_thread_registry[i].teb = 0;
+        ios_thread_registry[i].trampoline = NULL;
+        __sync_synchronize();
+        if (++reused <= 8 || !(reused & 255))
+            ERR( "[thread-registry] reused row %d of exited thread 0x%x (old teb=%p, %s) for 0x%x, %u reused\n",
+                 i, old, (void *)old_teb, want_teb ? "same teb" : "registry full", pe_thread, reused );
+        return i;
+    }
+    return -1;
+}
+
+/* Per-thread x18 trampoline slot (virtual_ios.c, 256 per pool). Slots were
+ * never given back, and after the 256th thread every new thread was handed
+ * slot 0, which belongs to the first thread. Record each slot's owner and,
+ * once the fresh slots are gone, take over the slot of an exited thread. Slot 0
+ * is never reused. Returns -1 if every owner is still alive; the thread then
+ * runs without a trampoline (callers check ios_my_trampoline). */
+extern int ios_jit_alloc_trampoline_slot(void);
+extern int ios_jit_trampoline_slot_limit(void);
+static thread_t ios_tramp_owner[256];
+
+static int ios_alloc_thread_trampoline( thread_t self )
+{
+    static unsigned int reused;
+    int limit = ios_jit_trampoline_slot_limit(), slot, i;
+
+    if (limit > (int)(sizeof(ios_tramp_owner) / sizeof(ios_tramp_owner[0])))
+        limit = sizeof(ios_tramp_owner) / sizeof(ios_tramp_owner[0]);
+    slot = ios_jit_alloc_trampoline_slot();
+    if (slot >= 0 && slot < limit)
+    {
+        ios_tramp_owner[slot] = self;
+        return slot;
+    }
+    for (i = 1; i < limit; i++)
+    {
+        thread_t old = ios_tramp_owner[i];
+
+        if (!old || old == self || old == IOS_THREAD_ROW_CLAIMED) continue;
+        if (!ios_thread_port_dead( old )) continue;
+        if (!__sync_bool_compare_and_swap( &ios_tramp_owner[i], old, self )) continue;
+        if (++reused <= 8 || !(reused & 255))
+            ERR( "[tramp-slot] reused slot %d of exited thread 0x%x for 0x%x, %u reused\n",
+                 i, old, self, reused );
+        return i;
+    }
+    ERR( "[tramp-slot] all %d slots belong to live threads — thread 0x%x runs without one\n",
+         limit, self );
+    return -1;
+}
+
 static int ios_lookup_thread(thread_t mach_thread, uintptr_t *teb_out, void **tramp_out)
 {
     int count = __sync_fetch_and_add(&ios_thread_count, 0);
@@ -5962,15 +6052,26 @@ static void ios_setup_mach_exception_handler( thread_t pe_thread, uintptr_t teb,
     if (reg_count > IOS_MAX_WINE_THREADS) reg_count = IOS_MAX_WINE_THREADS;
     for (idx = 0; idx < reg_count; idx++)
         if (ios_thread_registry[idx].mach_thread == pe_thread) break;
+    /* Rows were never given back, so a game that keeps starting short-lived
+     * threads (Ren'Py starts one per sound) filled all 512 after ~70 minutes
+     * (The Tribe, 2026-11-03). The next threads went unregistered, and the
+     * lock census then took a live, unregistered thread for the dead owner of
+     * its recycled TEB and released its FEX lock: the game hung. Take over the
+     * row of an exited thread before appending: first a dead row with this
+     * same (recycled) TEB, so no stale duplicate is left for that census to
+     * act on, then, once the array is full, any dead row. */
     if (idx == reg_count)
+        idx = ios_thread_registry_reuse_dead( reg_count, teb, pe_thread );
+    if (idx < 0)
     {
         idx = __sync_fetch_and_add(&ios_thread_count, 1);
         if (idx >= IOS_MAX_WINE_THREADS)
+            idx = ios_thread_registry_reuse_dead( IOS_MAX_WINE_THREADS, 0, pe_thread );
+        if (idx < 0)
         {
-            ERR("[thread-registry] FULL (%d slots) — thread 0x%x teb=%p NOT registered; "
+            ERR("[thread-registry] FULL (%d slots, none dead) — thread 0x%x teb=%p NOT registered; "
                 "Mach events on it will resolve to the slot-0 TEB (wrong process!)\n",
                 IOS_MAX_WINE_THREADS, pe_thread, (void *)teb);
-            idx = -1;
         }
     }
     if (idx >= 0)
@@ -13121,7 +13222,7 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
         extern void ios_jit_set_teb_slot(int slot, uintptr_t teb);
         extern void *ios_jit_get_trampoline(int slot);
 
-        ios_my_slot = ios_jit_alloc_trampoline_slot();
+        ios_my_slot = ios_alloc_thread_trampoline( pthread_mach_thread_np( pthread_self() ) );
         ios_jit_set_teb_slot(ios_my_slot, (uintptr_t)teb);
         ios_my_trampoline = ios_jit_get_trampoline(ios_my_slot);
         ERR("init_syscall_frame: allocated trampoline slot %d, tramp=%p, teb=%p\n",
