@@ -1,7 +1,8 @@
 diff --git a/recipes/zbar.recipe b/recipes/zbar.recipe
+index 65bbd7f..587f1f8 100644
 --- a/recipes/zbar.recipe
 +++ b/recipes/zbar.recipe
-@@ -7,7 +7,7 @@ class Recipe(recipe.Recipe):
+@@ -7,8 +7,8 @@ class Recipe(recipe.Recipe):
      version = '0.23.93'
      btype = BuildType.MESON
      stype = SourceType.TARBALL
@@ -11,3 +12,27 @@ diff --git a/recipes/zbar.recipe b/recipes/zbar.recipe
 +    tarball_checksum = '212dfab527894b8bcbcc7cd1d43d63f5604a07473d31a5f02889e372614ebe28'
      files_libs = ['libzbar']
      files_devel = ['include/zbar.h', '%(libdir)s/pkgconfig/zbar.pc']
+ 
+diff --git a/recipes/zbar/0001-Add-Meson-build.patch b/recipes/zbar/0001-Add-Meson-build.patch
+index 93ee27c..fec7a56 100644
+--- a/recipes/zbar/0001-Add-Meson-build.patch
++++ b/recipes/zbar/0001-Add-Meson-build.patch
+@@ -19,18 +19,6 @@ Subject: [PATCH] Add Meson build
+  create mode 100644 meson_options.txt
+  create mode 100644 zbar/meson.build
+ 
+-diff --git a/.gitignore b/.gitignore
+-new file mode 100644
+-index 0000000..be8622b
+---- /dev/null
+-+++ b/.gitignore
+-@@ -0,0 +1,6 @@
+-+*.*~
+-+*~
+-+autom4te.cache
+-+.cache
+-+build
+-+b
+ diff --git a/include/meson.build b/include/meson.build
+ new file mode 100644
+ index 0000000..408c32e

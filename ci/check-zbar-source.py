@@ -4,7 +4,9 @@
 Cerbero fetches zbar at step 31 of 85. The recipe's old URL began serving a
 different file, which only showed once the build got there. This downloads the
 recipe's tarball now, checks the pinned SHA-256, checks the top-level folder
-Cerbero expects, and test-applies Cerbero's own zbar patches to it.
+Cerbero expects, and applies Cerbero's own zbar patches to it the way Cerbero does
+(commit the unpacked tree, then `git am --ignore-whitespace`). A looser `patch`
+dry run passed on a tarball that `git am` then refused, so this must use git.
 
 Usage: check-zbar-source.py CERBERO_CHECKOUT [--archive FILE]
 --archive uses a local file instead of downloading (for tests).
@@ -52,15 +54,20 @@ def main(argv):
             if tops != {expected}:
                 raise SystemExit(f'zbar tarball unpacks to {sorted(tops)}, Cerbero expects {expected}')
             tar.extractall(source, filter='data')
+        tree = source / expected
+        git = ['git', '-c', 'user.email=check@example.invalid', '-c', 'user.name=check',
+               '-c', 'init.defaultBranch=main', '-c', 'core.autocrlf=false']
+        for step in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'unpacked source']):
+            subprocess.run(git + step, cwd=tree, check=True, capture_output=True)
         for name in patches:
             patch = (cerbero / 'recipes/zbar' / name).resolve()
-            result = subprocess.run(['patch', '-p1', '--dry-run', '-i', str(patch)],
-                                    cwd=source / expected, capture_output=True, text=True)
+            result = subprocess.run(git + ['am', '--ignore-whitespace', str(patch)],
+                                    cwd=tree, capture_output=True, text=True)
             if result.returncode != 0:
                 raise SystemExit(f'Cerbero patch {name} does not apply to this zbar tarball:\n'
                                  + result.stdout + result.stderr)
             print(f'{name} applies')
-    print('PASS: zbar tarball matches its checksum, unpacks as expected and takes the Meson patch')
+    print('PASS: zbar tarball matches its checksum, unpacks as expected and takes the Meson patch with git am')
 
 
 if __name__ == '__main__':
