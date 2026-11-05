@@ -3831,6 +3831,69 @@ uintptr_t ios_jit_anon_alias_lookup_rx(uintptr_t fault_addr)
     return 0;
 }
 
+/* Decide whether an image's base-relocation directory can be applied to its
+ * JIT-pool copy. Some executables carry a directory entry that does not point
+ * at relocation blocks: Ren'Py's launcher stub and pythonw.exe have
+ * IMAGE_FILE_RELOCS_STRIPPED set and a directory (RVA 0x1e000/0x1f000, size
+ * 0x68) that lies inside .rsrc. Reading resource bytes as blocks produced wild
+ * block RVAs and the copy loop wrote through them, which killed the process.
+ *
+ * The directory is refused when it leaves the image, lies inside .rsrc, or a
+ * block is malformed (size 1..7, odd, past the end of the directory, or a block
+ * RVA outside the image). A block size of 0 ends the table, as the apply loops
+ * already treat it. A well-formed directory is accepted unchanged, so images
+ * that relocate correctly today behave as before.
+ * rw_image: writable view of the image; pe_off: offset of the PE header. */
+static int ios_reloc_dir_valid(const char *rw_image, size_t image_size, unsigned int pe_off,
+                               unsigned int rva, unsigned int size, const char **why)
+{
+    unsigned short num_sec, opt_sz;
+    const char *sec;
+    unsigned int pos = 0;
+    int s;
+
+    if (!rva && !size) { *why = "no directory"; return 0; }
+    if (!rva || !size) { *why = "directory has an RVA or a size but not both"; return 0; }
+    if ((unsigned long long)rva + size > image_size) { *why = "directory is outside the image"; return 0; }
+
+    num_sec = *(const unsigned short *)(rw_image + pe_off + 6);
+    opt_sz  = *(const unsigned short *)(rw_image + pe_off + 0x14);
+    sec = rw_image + pe_off + 0x18 + opt_sz;
+    if ((unsigned long long)pe_off + 0x18 + opt_sz + 40ull * num_sec <= image_size)
+    {
+        for (s = 0; s < num_sec; s++, sec += 40)
+        {
+            unsigned int sec_vsz = *(const unsigned int *)(sec + 8);
+            unsigned int sec_rva = *(const unsigned int *)(sec + 12);
+            if (rva >= sec_rva && rva < (unsigned long long)sec_rva + sec_vsz &&
+                !memcmp(sec, ".rsrc\0\0\0", 8))
+            {
+                *why = "directory lies inside .rsrc";
+                return 0;
+            }
+        }
+    }
+
+    while (pos + 8 <= size)
+    {
+        unsigned int block_rva  = *(const unsigned int *)(rw_image + rva + pos);
+        unsigned int block_size = *(const unsigned int *)(rw_image + rva + pos + 4);
+        if (!block_size) break;
+        if (block_size < 8 || (block_size & 1) || block_size > size - pos)
+        {
+            *why = "malformed block size";
+            return 0;
+        }
+        if (block_rva >= image_size)
+        {
+            *why = "block RVA outside the image";
+            return 0;
+        }
+        pos += block_size;
+    }
+    return 1;
+}
+
 void ios_jit_set_reloc_info(void *pe_base, uint64_t pe_image_base, intptr_t delta,
                             unsigned int reloc_rva, unsigned int reloc_size)
 {
@@ -12835,6 +12898,19 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
                     unsigned int reloc_rva = *(unsigned int *)(rw_image + pe_off + 0xB0);
                     unsigned int reloc_sz  = *(unsigned int *)(rw_image + pe_off + 0xB4);
 
+                    if (reloc_rva || reloc_sz)
+                    {
+                        const char *reloc_why = "";
+                        if (!ios_reloc_dir_valid(rw_image, image_size, pe_off, reloc_rva, reloc_sz, &reloc_why))
+                        {
+                            ERR("iOS JIT:   [reloc-skip] ignoring the base-relocation directory RVA=0x%x size=0x%x: %s (image_size=0x%lx, characteristics=0x%x)\n",
+                                reloc_rva, reloc_sz, reloc_why, (unsigned long)image_size,
+                                (unsigned int)*(unsigned short *)(rw_image + pe_off + 0x16));
+                            reloc_rva = 0;
+                            reloc_sz = 0;
+                        }
+                    }
+
                     if (reloc_rva && reloc_sz && delta)
                     {
                         char *reloc_data = rw_image + reloc_rva;
@@ -12865,7 +12941,9 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
 
                                 if (type == 10)  /* IMAGE_REL_BASED_DIR64 */
                                 {
-                                    uint64_t *fixup = (uint64_t *)(rw_image + block_rva + off);
+                                    uint64_t *fixup;
+                                    if ((unsigned long long)block_rva + off + 8 > image_size) continue;
+                                    fixup = (uint64_t *)(rw_image + block_rva + off);
                                     uint64_t val = *fixup;
                                     if (val >= pe_image_base && val < pe_image_base + image_size)
                                     {
@@ -13308,7 +13386,9 @@ int ios_jit_copy_module_for_child(void *module_addr, void *child_peb)
             {
                 if ((entries[j] >> 12) == 10)  /* IMAGE_REL_BASED_DIR64 */
                 {
-                    uint64_t *fixup = (uint64_t *)(rw_dest + block_rva + (entries[j] & 0xFFF));
+                    uint64_t *fixup;
+                    if ((unsigned long long)block_rva + (entries[j] & 0xFFF) + 8 > m->size) continue;
+                    fixup = (uint64_t *)(rw_dest + block_rva + (entries[j] & 0xFFF));
                     if (*fixup >= pe_image_base && *fixup < pe_image_base + m->size)
                     {
                         *fixup += child_delta;
@@ -22675,6 +22755,8 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
 
                                 /* Only fix entries within the synced region */
                                 if (fixup_rva < rgn_off_start || fixup_rva + 8 > rgn_off_end)
+                                    continue;
+                                if ((size_t)fixup_rva + 8 > img_size)
                                     continue;
 
                                 {

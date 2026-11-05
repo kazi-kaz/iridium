@@ -49,7 +49,10 @@ fallback = function(driver, 'static HWND winios_input_fallback_window(void)')
 assert 'is_window_visible( hwnd )' in fallback and 'GW_HWNDNEXT' in fallback
 post = function(driver, 'void winios_drv_post_mouse(')
 assert post.index('winios_input_fallback_window()') < post.index('map_window_points(target, NULL, &position, 1, get_thread_dpi());')
-assert driver.count('target = winios_input_fallback_window();') == 2
+# the two position paths (mouse, SetCursorPos) plus winios_focus_game_window,
+# which picks the window to make foreground (check-ios-focus.py covers it)
+assert driver.count('target = winios_input_fallback_window();') == 3
+assert 'HWND target = winios_input_fallback_window();' in function(driver, 'static HWND winios_focus_game_window(void)')
 
 audio = read('build/ntdll-unix/audio_null_ios.c')
 loop = function(audio, 'static NTSTATUS ios_timer_loop(void *args)')

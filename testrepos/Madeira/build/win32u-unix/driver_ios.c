@@ -163,10 +163,37 @@ static HWND winios_input_fallback_window(void)
     return 0;
 }
 
+/* Called when input arrives and no window is foreground. Nothing on iOS plays
+ * the window manager, so a game's window is never given the foreground when it
+ * appears (X11 and Windows do that). With no foreground window there is no
+ * focus either, and Wine drops every key press: Ren'Py showed its menu, taps
+ * worked, the keyboard did nothing (MyFluffyNeighbor, 2026-11-05). Make the
+ * window that input would go to the foreground window, from its own thread
+ * (the input pump runs inside the thread's PeekMessage). Gives up after 16
+ * attempts that leave no foreground window. */
+static HWND winios_focus_game_window(void)
+{
+    static unsigned int attempts, failures;
+    HWND target = winios_input_fallback_window();
+    BOOL ok;
+    HWND foreground;
+
+    if (!target || failures >= 16) return 0;
+    if (get_window_thread( target, NULL ) != GetCurrentThreadId()) return 0;
+    ok = NtUserSetForegroundWindow( target );
+    foreground = NtUserGetForegroundWindow();
+    if (!foreground) failures++;
+    if (++attempts <= 8)
+        dprintf(2, "[winios-focus] no foreground window; SetForegroundWindow(%p) %s, foreground=%p (#%u)\n",
+                target, ok ? "succeeded" : "failed", foreground, attempts);
+    return foreground;
+}
+
 void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_data, HWND hwnd)
 {
     INPUT input;
     HWND target = winios_desktop_mode() ? NULL : NtUserGetForegroundWindow();
+    if (!target && !winios_desktop_mode()) target = winios_focus_game_window();
     if (!target && !winios_desktop_mode()) target = winios_input_fallback_window();
     if (target && (flags & MOUSEEVENTF_ABSOLUTE))
     {
@@ -258,6 +285,9 @@ void winios_drv_post_key(unsigned short vk, unsigned int flags)
     input.ki.dwFlags     = flags;
     input.ki.time        = 0;
     input.ki.dwExtraInfo = 0;
+
+    /* Keys go to the focus window. Without a foreground window there is none. */
+    if (!winios_desktop_mode() && !NtUserGetForegroundWindow()) winios_focus_game_window();
 
     st = send_hardware_message( NULL, 0, &input, 0 );
     winios_log_input("key", vk, st);

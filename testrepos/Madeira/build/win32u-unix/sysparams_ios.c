@@ -5208,6 +5208,12 @@ BOOL WINAPI NtUserEnumDisplayMonitors( HDC hdc, RECT *rect, MONITORENUMPROC proc
     RECT limit;
     BOOL ret = TRUE;
 
+#ifdef WINE_IOS
+    /* A program that sizes itself from its monitors may never ask for
+     * SM_CXSCREEN; make sure the pointer clip follows the monitor anyway. */
+    ios_publish_screen_size_once();
+#endif
+
     if (hdc)
     {
         DC *dc;
@@ -7805,9 +7811,15 @@ int get_system_metrics( int index )
         rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
         return rect.top;
     case SM_CXVIRTUALSCREEN:
+#ifdef WINE_IOS
+        ios_publish_screen_size_once();
+#endif
         rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
         return rect.right - rect.left;
     case SM_CYVIRTUALSCREEN:
+#ifdef WINE_IOS
+        ios_publish_screen_size_once();
+#endif
         rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
         return rect.bottom - rect.top;
     case SM_CMONITORS:

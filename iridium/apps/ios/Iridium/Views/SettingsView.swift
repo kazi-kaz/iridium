@@ -472,6 +472,10 @@ private struct DiagnosticsSettingsView: View {
 #if MADEIRA_RUNTIME
 private struct RuntimeLaunchPreferences: View {
     @AppStorage(MadeiraResolution.key) private var width = 960
+    @AppStorage(MadeiraResolution.heightKey) private var height = 0
+    @State private var customWidth = ""
+    @State private var customHeight = ""
+    @State private var customError: String?
     @AppStorage("IridiumJITPoolMB") private var pool = 0
     @AppStorage("IridiumVerboseTrace") private var verboseTrace = false
     @AppStorage(MadeiraSteamClient.preferenceKey) private var steamClient = false
@@ -479,15 +483,36 @@ private struct RuntimeLaunchPreferences: View {
         List {
             Section("Display Resolution") {
                 ForEach(MadeiraResolution.allCases, id: \.rawValue) { resolution in
-                    MenuButton { width = resolution.rawValue } label: {
+                    MenuButton {
+                        width = resolution.rawValue
+                        height = 0
+                        customWidth = String(resolution.rawValue)
+                        customHeight = String(resolution.height)
+                        customError = nil
+                    } label: {
                         HStack {
                             Text(resolution.title)
                             Spacer()
-                            if width == resolution.rawValue { Image(systemName: "checkmark") }
+                            if height == 0 && width == resolution.rawValue { Image(systemName: "checkmark") }
                         }
                     }
                 }
-                Text("Applies to the next game launch. Lower resolutions reduce graphics work.")
+                HStack {
+                    MenuTextField("Width", text: $customWidth).keyboardType(.numberPad)
+                    Text("×").foregroundStyle(.secondary)
+                    MenuTextField("Height", text: $customHeight).keyboardType(.numberPad)
+                }
+                MenuButton { applyCustomSize() } label: {
+                    HStack {
+                        Text("Use Custom Size")
+                        Spacer()
+                        if height > 0 { Image(systemName: "checkmark") }
+                    }
+                }
+                if let customError {
+                    Text(customError).font(.footnote).foregroundStyle(.red)
+                }
+                Text("Applies to the next game launch. Lower resolutions reduce graphics work. A custom size can be any shape from \(MadeiraResolution.widthRange.lowerBound) × \(MadeiraResolution.heightRange.lowerBound) to \(MadeiraResolution.widthRange.upperBound) × \(MadeiraResolution.heightRange.upperBound); odd numbers are rounded down to even. Large sizes need more graphics work and memory.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("JIT Memory Limit") {
@@ -540,6 +565,26 @@ private struct RuntimeLaunchPreferences: View {
         .navigationTitle("Display & Memory")
         .navigationBarTitleDisplayMode(.inline)
         .iridiumListChrome()
+        .onAppear {
+            let current = MadeiraResolution.selected
+            customWidth = String(current.rawValue)
+            customHeight = String(current.height)
+        }
+    }
+
+    /// Saves the typed width and height, or says why they are not accepted.
+    private func applyCustomSize() {
+        guard let typedWidth = Int(customWidth.trimmingCharacters(in: .whitespaces)),
+              let typedHeight = Int(customHeight.trimmingCharacters(in: .whitespaces)),
+              let chosen = MadeiraResolution(customWidth: typedWidth, height: typedHeight) else {
+            customError = "Width must be \(MadeiraResolution.widthRange.lowerBound)–\(MadeiraResolution.widthRange.upperBound) and height \(MadeiraResolution.heightRange.lowerBound)–\(MadeiraResolution.heightRange.upperBound)."
+            return
+        }
+        customError = nil
+        width = chosen.rawValue
+        height = chosen.isPreset ? 0 : chosen.height
+        customWidth = String(chosen.rawValue)
+        customHeight = String(chosen.height)
     }
 }
 

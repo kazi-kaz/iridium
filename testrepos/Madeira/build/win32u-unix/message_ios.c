@@ -2613,6 +2613,26 @@ static WORD pointer_buttons_from_mouse_buttons( WORD mouse_flags )
     return pointer_flags;
 }
 
+/* iOS: the top-level window of hwnd when NtUserGetAncestor( GA_ROOT ) cannot
+ * say. GA_ROOT answers 0 for the game's own window here (list_window_parents
+ * fails), so a click's activation had no window to work on: Ren'Py's window
+ * never became active, foreground or focused and no key press ever reached it
+ * (MyFluffyNeighbor, 2026-11-05). GA_PARENT reads the window's own parent
+ * pointer and does not need that list. Returns 0 for the desktop itself. */
+static HWND ios_top_level_window( HWND hwnd )
+{
+    HWND desktop = get_desktop_window(), top = get_full_window_handle( hwnd ), parent;
+    int guard;
+
+    for (guard = 0; top && guard < 32; guard++)
+    {
+        parent = NtUserGetAncestor( top, GA_PARENT );
+        if (!parent || parent == desktop) break;
+        top = parent;
+    }
+    return top == desktop ? 0 : top;
+}
+
 /***********************************************************************
  *          process_mouse_message
  *
@@ -2841,6 +2861,15 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
         if (msg->hwnd != info.hwndActive)
         {
             HWND hwndTop = NtUserGetAncestor( msg->hwnd, GA_ROOT );
+
+            if (!hwndTop)
+            {
+                static unsigned int root_fallback;
+                hwndTop = ios_top_level_window( msg->hwnd );
+                if (++root_fallback <= 4)
+                    ERR( "[click-activate] GA_ROOT(%p) answered 0; top-level window is %p (#%u)\n",
+                         msg->hwnd, hwndTop, root_fallback );
+            }
 
             if ((get_window_long( hwndTop, GWL_STYLE ) & (WS_POPUP|WS_CHILD)) != WS_CHILD)
             {

@@ -22,6 +22,8 @@
 
 #include <assert.h>
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "ntstatus.h"
 #include "windef.h"
@@ -664,18 +666,25 @@ static struct window *create_window( struct window *parent, struct window *owner
                  * never report a monitor. That makes cursor.clip degenerate
                  * and update_desktop_cursor_pos clips every (x,y) to (0,0),
                  * dropping all hardware mouse coords. Initialize the desktop
-                 * shared cursor.clip directly to match SM_CXSCREEN/CYSCREEN
-                 * (1024x768 in sysparams_ios.c). */
+                 * shared cursor.clip directly to match SM_CXSCREEN/CYSCREEN,
+                 * which follow MADEIRA_SCREEN_W/H (1024x768 when unset).
+                 * This used to be a fixed 1024x768, so a game running at a
+                 * larger Display Resolution could only be touched in its
+                 * top-left 1024x768 part (Ren'Py at 1280x720, 2026-11-05). */
                 {
                     desktop_shm_t *desktop_shm = desktop->shared;
+                    const char *w_env = getenv( "MADEIRA_SCREEN_W" ), *h_env = getenv( "MADEIRA_SCREEN_H" );
+                    int scr_w = (w_env && atoi( w_env ) >= 160 && atoi( w_env ) <= 16384) ? atoi( w_env ) : 1024;
+                    int scr_h = (h_env && atoi( h_env ) >= 120 && atoi( h_env ) <= 16384) ? atoi( h_env ) : 768;
                     SHARED_WRITE_BEGIN( desktop_shm, desktop_shm_t )
                     {
                         shared->cursor.clip.left = 0;
                         shared->cursor.clip.top = 0;
-                        shared->cursor.clip.right = 1024;
-                        shared->cursor.clip.bottom = 768;
+                        shared->cursor.clip.right = scr_w;
+                        shared->cursor.clip.bottom = scr_h;
                     }
                     SHARED_WRITE_END;
+                    fprintf( stderr, "[srv-desktop] detached desktop created: clip %dx%d\n", scr_w, scr_h );
                 }
             }
             else

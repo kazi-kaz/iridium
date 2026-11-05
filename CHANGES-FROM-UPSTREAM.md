@@ -542,6 +542,44 @@ the workarounds unnecessary. They are not yet device-tested.
 
 Source checks for the last five items: `build/host-tests/check-renpy-session-fixes.py`.
 
+## Ren'Py launcher, keyboard focus, pointer area and custom resolution (MyFluffyNeighbor, 2026-11-05)
+
+Found running MyFluffyNeighbor 1.9.2 (Ren'Py 8.5.2) on build 28.1. Each item was
+confirmed on device with a workaround in the game folder; these changes make the
+workarounds unnecessary. They are not yet device-tested.
+
+- `build/ntdll-unix/virtual_ios.c`: the JIT-pool copy of an image no longer
+  applies a base-relocation directory that is not a relocation table. The game's
+  launcher stub and `pythonw.exe` (`IMAGE_FILE_RELOCS_STRIPPED`) carry a
+  directory (RVA 0x1e000 or 0x1f000, size 0x68) that lies inside `.rsrc`; its
+  bytes were read as blocks and the copy wrote through a wild address, which
+  ended the process right after "Starting the game process". A directory is
+  refused when it leaves the image, lies inside `.rsrc`, or has a malformed
+  block (size 1-7, odd, past the directory, block RVA outside the image); a
+  well-formed directory is applied as before. Every DIR64 write at the three
+  apply sites (pool copy, child ntdll copy, IAT sync) is bounded to the image.
+  Log: `[reloc-skip]`. Host check: `build/host-tests/check-reloc-dir.py`.
+- `build/win32u-unix/message_ios.c`, `driver_ios.c`: `GetAncestor(GA_ROOT)`
+  answers 0 for the game's window on iOS, so a tap's activation had no window to
+  work on; no window ever became active, foreground or focused and Wine dropped
+  every key press (taps still worked). A tap now falls back to walking
+  `GA_PARENT`, and when input arrives with no foreground window the window it
+  would go to is made foreground from its own thread (16 attempts at most).
+  Log: `[click-activate] GA_ROOT(...) answered 0`, `[winios-focus]`. Host
+  check: `build/host-tests/check-ios-focus.py`.
+- `build/wineserver/window_ios.c`, `build/win32u-unix/sysparams_ios.c`: the
+  detached desktop's cursor clip was a constant 1024x768, so a game at a larger
+  Display Resolution could only be touched inside that area. It is seeded from
+  `MADEIRA_SCREEN_W/H` (1024x768 when unset), and the size is also published
+  from `EnumDisplayMonitors` and `SM_C{X,Y}VIRTUALSCREEN`, not only from the
+  first `SM_C{X,Y}SCREEN` query. Log: `[srv-desktop] detached desktop created`.
+  Host check: `build/host-tests/check-cursor-clip.py`.
+- `iridium/apps/ios`: Settings > Runtime > Display & Memory accepts a custom
+  Display Resolution (width and height, 320 x 240 to 3840 x 2160, rounded down
+  to even) besides the four 16:9 presets. Presets are saved as before
+  (`IridiumRenderWidth`); a custom size also saves `IridiumRenderHeight`. Swift
+  check: `LaunchOptionsCheck.swift`.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit
