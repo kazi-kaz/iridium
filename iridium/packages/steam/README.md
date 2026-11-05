@@ -6,7 +6,7 @@ shell exposes a native **Downloads** tab, also reachable through **Add Game → 
 
 ## Build and test
 
-Use .NET SDK **10.0.401**. First run `python3 ci/prepare-steamkit.py` from
+Use .NET SDK **10.0.403**. First run `python3 ci/prepare-steamkit.py` from
 the repository root to fetch the pinned source and apply the iOS compatibility
 patch. Then, from this directory:
 

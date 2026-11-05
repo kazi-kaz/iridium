@@ -33,7 +33,7 @@ The [manual IPA workflow](docs/actions-ipa.md) builds runtime dependencies and t
 
 ## Build a sideloading IPA locally
 
-Install Xcode 27, Python 3.12 or newer, XcodeGen, LLVM, and .NET SDK 10.0.401. Prepare the runtime
+Install Xcode 27, Python 3.12 or newer, XcodeGen, LLVM, and .NET SDK 10.0.403. Prepare the runtime
 dependencies by following [the full IPA build guide](docs/actions-ipa.md), then
 run this command from the repository root:
 

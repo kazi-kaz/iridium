@@ -101,19 +101,19 @@ else: sys.exit(2)
     def test_pinned_steam_sdk_is_checked_before_installing_or_compiling(self):
         steam = self.root / "iridium/packages/steam"
         steam.mkdir(parents=True)
-        (steam / "global.json").write_text(json.dumps({"sdk": {"version": "10.0.401"}}))
+        (steam / "global.json").write_text(json.dumps({"sdk": {"version": "10.0.403"}}))
         sdk = self.root / ".build/dotnet/dotnet"
-        for version in (None, "10.0.400", "10.0.401"):
+        for version in (None, "10.0.401", "10.0.403"):
             with self.subTest(version=version):
                 if version is not None:
                     self.stub("dotnet", "from pathlib import Path\nassert Path.cwd().resolve() == Path(" + repr(str(steam)) + ").resolve()"
                               + "\nprint(" + repr(version) + ")\n", sdk)
-                if version == "10.0.401":
+                if version == "10.0.403":
                     self.install_except()
                     env = tools.prepare_environment(self.root, environ=self.env)
                     self.assertEqual(tools.shutil.which("dotnet", path=env["PATH"]), str(sdk))
                 else:
-                    with self.assertRaisesRegex(RuntimeError, "Steam requires .NET SDK 10.0.401"):
+                    with self.assertRaisesRegex(RuntimeError, "Steam requires .NET SDK 10.0.403"):
                         tools.prepare_environment(self.root, environ=self.env)
                 self.assertFalse(any(x[0] == "install" for x in self.commands()))
 

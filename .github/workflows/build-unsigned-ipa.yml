@@ -133,7 +133,7 @@ jobs:
       - name: Install the pinned Steam module SDK
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: '10.0.403'
       - name: Build and test the native Steam framework
         run: python3 ci/build-steam-framework.py --device-only
       - name: Archive framework without changing executable permissions
@@ -162,7 +162,7 @@ jobs:
       - name: Install the pinned Steam module SDK
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: '10.0.401'
+          dotnet-version: '10.0.403'
       - name: Prepare pinned SteamKit source
         run: python3 ci/prepare-steamkit.py
       - name: Verify production Swift argument and Activity fixtures

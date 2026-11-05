@@ -12,7 +12,7 @@ Start with the root [IPA build guide](../../docs/actions-ipa.md) and
 - A working Xcode toolchain with its license and first-run setup completed.
   Set `DEVELOPER_DIR` when selecting a particular full Xcode installation;
   Command Line Tools alone are insufficient.
-- .NET SDK **10.0.401** for the Steam framework.
+- .NET SDK **10.0.403** for the Steam framework.
 - The initial Linux userland, media, prefix, graphics, and JIT inputs prepared
   using the root IPA guide. A fresh checkout cannot build the complete runtime
   from the incremental app command alone.

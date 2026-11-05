@@ -580,6 +580,19 @@ workarounds unnecessary. They are not yet device-tested.
   (`IridiumRenderWidth`); a custom size also saves `IridiumRenderHeight`. Swift
   check: `LaunchOptionsCheck.swift`.
 
+## .NET SDK 10.0.403 for the Steam framework (2026-11-05)
+
+NuGet audit began reporting `Microsoft.DotNet.ILCompiler` 10.0.12 and 8.0.31 as
+high severity (GHSA-p3jp-9v83-76w9, CVE-2026-111497, an out-of-bounds write in
+the .NET Brotli decoder, fixed in 10.0.14). SteamKit2 treats warnings as errors,
+so the NativeAOT restore failed and no build could start. The pinned SDK is now
+10.0.403, which ships runtime and ILCompiler 10.0.14: `global.json`, the build
+workflow, `ci/build-steam-framework.py`, its tests and the setup documents.
+`ci/steam-source-inputs.json` pins the matching `dotnet/dotnet` source,
+`dotnet-nativeaot-10.0.14` (tag `v10.0.14`, revision
+`0427b9abbead3fa64c6655eb4290c537397131fa`), replacing 10.0.12. The audit is not
+relaxed. Not yet verified by a build when written.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit

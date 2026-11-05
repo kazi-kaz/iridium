@@ -38,7 +38,7 @@ class SteamTestEnvironmentTests(unittest.TestCase):
                  patch.object(framework.platform, 'system', return_value='Darwin'), \
                  patch.object(framework.platform, 'machine', return_value='arm64'), \
                  patch.object(framework.sys, 'argv', ['build-steam-framework.py']), \
-                 patch.object(framework.subprocess, 'check_output', return_value='10.0.401\n'), \
+                 patch.object(framework.subprocess, 'check_output', return_value='10.0.403\n'), \
                  patch.object(framework, 'run', side_effect=run):
                 with self.assertRaises(TestsFinished):
                     framework.main()

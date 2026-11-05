@@ -24,9 +24,9 @@ def main():
     parser.add_argument('--device-only', action='store_true')
     args = parser.parse_args()
     if platform.system() != 'Darwin':
-        parser.error('Framework compilation requires macOS with Xcode and .NET SDK 10.0.401.')
-    if subprocess.check_output(['dotnet', '--version'], cwd=SOURCE, text=True).strip() != '10.0.401':
-        parser.error('Use the pinned .NET SDK 10.0.401.')
+        parser.error('Framework compilation requires macOS with Xcode and .NET SDK 10.0.403.')
+    if subprocess.check_output(['dotnet', '--version'], cwd=SOURCE, text=True).strip() != '10.0.403':
+        parser.error('Use the pinned .NET SDK 10.0.403.')
     host = 'osx-arm64' if platform.machine() == 'arm64' else 'osx-x64'
     run(sys.executable, ROOT / 'ci/check-steam-queue.py')
     run(sys.executable, ROOT / 'ci/prepare-steamkit.py')

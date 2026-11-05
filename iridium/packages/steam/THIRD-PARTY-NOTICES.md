@@ -14,7 +14,7 @@ Package metadata and the source revisions below identify the source inputs.
 | protobuf-net / protobuf-net.Core | 3.2.56, `dfdfce61a739cfd76f05fcdacf8a4b3b9e94e684` | Apache-2.0 |
 | ZstdSharp.Port | 0.8.7, `0ee6121aaa173b42e68d3c6c8816a68e910e0557` | MIT; translated Zstandard notices also apply |
 | System.IO.Hashing | 10.0.1, dotnet/dotnet `fad253f51b461736dfd3cd9c15977bb7493becef` | MIT |
-| .NET runtime / NativeAOT | runtime 10.0.12, SDK 10.0.401 | MIT and runtime third-party notices |
+| .NET runtime / NativeAOT | runtime 10.0.14, SDK 10.0.403 | MIT and runtime third-party notices |
 
 Sources: https://github.com/SteamRE/SteamKit,
 https://github.com/protobuf-net/protobuf-net,

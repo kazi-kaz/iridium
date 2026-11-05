@@ -138,7 +138,7 @@ The fixture performs no Steam/network login. It does not simulate the iOS daemon
 suspension, scheduling or wake budget. Managed tests exercise bounded planning,
 one-time handoffs, cancellation/stale IDs, runtime permission, storage reservation,
 and deterministic AES/ZIP ciphertext through the public SteamKit processing API.
-They must also run as NativeAOT with the pinned .NET 10.0.401 SDK before release.
+They must also run as NativeAOT with the pinned .NET 10.0.403 SDK before release.
 Actual Apple SDK typechecking covers the app, shared intent and widget APIs.
 
 Before claiming full background game download support, separately validate on a
