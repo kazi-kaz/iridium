@@ -4184,9 +4184,18 @@ void server_init_process_done(void)
          * ios_thread_sampler_main() above. */
         if (__sync_bool_compare_and_swap(&ios_ts_armed, 0, 1))
         {
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_thread_sampler_main(); });
+            /* MADEIRA_NO_PROBES (Settings > Quiet Diagnostics, or quiet-diagnostics
+             * in a game's iridium.cfg): skip the two samplers that thread_suspend
+             * the game's threads in bursts (the 20 s thread sampler and the [wprof]
+             * burst profiler). The [xp] CPU probe only reads counters and stays: it is
+             * what shows where the time goes. Default (unset) is unchanged. */
+            if (getenv( "MADEIRA_NO_PROBES" ))
+                wine_log_write( "[thread-sample] samplers off (MADEIRA_NO_PROBES): thread sampler and [wprof] not started, [xp] stays" );
+            else
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_thread_sampler_main(); });
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_xprobe_main(); });   /* ml1128 */
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_wprof_main(); });   /* ml1129 */
+            if (!getenv( "MADEIRA_NO_PROBES" ))
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_wprof_main(); });   /* ml1129 */
         }
         if (!getenv("MADEIRA_QUIET"))
         {

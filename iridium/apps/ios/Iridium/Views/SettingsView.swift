@@ -478,6 +478,8 @@ private struct RuntimeLaunchPreferences: View {
     @State private var customError: String?
     @AppStorage("IridiumJITPoolMB") private var pool = 0
     @AppStorage("IridiumVerboseTrace") private var verboseTrace = false
+    @AppStorage(MadeiraPerformance.relaxedOrderingKey) private var relaxedOrdering = false
+    @AppStorage(MadeiraPerformance.quietDiagnosticsKey) private var quietDiagnostics = false
     @AppStorage(MadeiraSteamClient.preferenceKey) private var steamClient = false
     var body: some View {
         List {
@@ -539,6 +541,32 @@ private struct RuntimeLaunchPreferences: View {
                     }
                 }
                 Text("Logs file opens, system calls and module loads for the next launch. For diagnosing crashes only: it makes games much slower and logs very large.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Relaxed CPU Ordering (Experimental)") {
+                ForEach([false, true], id: \.self) { enabled in
+                    MenuButton { relaxedOrdering = enabled } label: {
+                        HStack {
+                            Text(enabled ? "On" : "Off")
+                            Spacer()
+                            if relaxedOrdering == enabled { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+                Text("Skips the memory-ordering work the x86 translator does for every game thread. Can make CPU-heavy games, such as Ren'Py visual novels, noticeably faster for the next launch. The translator's own documentation warns it is highly likely to break multithreaded programs, so turn it off again if a game crashes or glitches. cpu-ordering = relaxed or strict in a game's iridium.cfg overrides this for that game.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Quiet Diagnostics") {
+                ForEach([false, true], id: \.self) { enabled in
+                    MenuButton { quietDiagnostics = enabled } label: {
+                        HStack {
+                            Text(enabled ? "On" : "Off")
+                            Spacer()
+                            if quietDiagnostics == enabled { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+                Text("Stops the background samplers that briefly pause the game's threads every 20 seconds to write the CPU profile to the log. The log still has CPU, memory and thermal lines. quiet-diagnostics = on or off in a game's iridium.cfg overrides this for that game.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Steam Client (Experimental)") {

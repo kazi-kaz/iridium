@@ -111,6 +111,9 @@ enum MadeiraRuntimeAdapter {
         } else {
             unsetenv(MadeiraGameConfig.environmentKey)
         }
+        // Opt-in speed switches (Settings, or the game's iridium.cfg). Both are off by
+        // default. Set before the Wine server and the translator read their environment.
+        RuntimeLogCapture.writeLine(MadeiraPerformance.apply(MadeiraPerformance.settings(gameConfig: gameConfig)))
         // A sign-in transfer left by an earlier, interrupted launch is never reused.
         MadeiraSteamDock.cleanup()
         jit_install_trap_handler()
@@ -363,9 +366,23 @@ enum MadeiraRuntimeAdapter {
                     monitorTask?.cancel()
                     monitorTask = Task { @MainActor in
                         var lastInstallerStatus: String?
+                        let statusStart = ProcessInfo.processInfo.systemUptime
+                        var lastStatus = statusStart
                         while wine_process_is_running() != 0 {
                             do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
                             guard launchID == token else { return }
+                            // Device state every few seconds, so a multi-second freeze can be
+                            // matched to thermal throttling, Low Power Mode or low memory.
+                            let now = ProcessInfo.processInfo.systemUptime
+                            if now - lastStatus >= MadeiraStatusLine.interval {
+                                lastStatus = now
+                                let memory = RuntimeMemorySnapshot.sample()
+                                RuntimeLogCapture.writeLine(MadeiraStatusLine.format(
+                                    thermal: MadeiraStatusLine.thermalName(ProcessInfo.processInfo.thermalState),
+                                    lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                    usedBytes: memory?.usedBytes, availableBytes: memory?.availableBytes,
+                                    seconds: now - statusStart))
+                            }
                             if let prefix = prerequisitePrefix {
                                 let dock = steamDockSession
                                 let (status, dockReport) = await Task.detached(priority: .utility) {

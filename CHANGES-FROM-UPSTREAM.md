@@ -593,6 +593,33 @@ workflow, `ci/build-steam-framework.py`, its tests and the setup documents.
 `0427b9abbead3fa64c6655eb4290c537397131fa`), replacing 10.0.12. The audit is not
 relaxed. Not yet verified by a build when written.
 
+## Opt-in CPU ordering and diagnostics switches, device status line (MyFluffyNeighbor, 2026-11-05)
+
+Found measuring MyFluffyNeighbor 1.9.2 (Ren'Py 8.5.2) on build 30.1: menus and the
+save screen block the game's main thread for seconds, and Python/Ren'Py code
+running under the x86 translator is the cost (`[thread-sample]`, `[cpu-split]`,
+a Python stack sampler in the game). Nothing below is on by default.
+
+- Settings > Runtime > Display & Memory: **Relaxed CPU Ordering (Experimental)**
+  sets `FEX_TSOENABLED=0` for the launch, **Quiet Diagnostics** sets
+  `MADEIRA_NO_PROBES=1`. A game's `iridium.cfg` overrides each for that game
+  (`cpu-ordering = relaxed|strict`, `quiet-diagnostics = on|off`). The existing
+  `env.FEX_TSOENABLED = 0` line in `iridium.cfg` reaches the translator too and
+  needs no build. FEX documents that disabling TSO is "highly likely to break any
+  multithreaded application"; no FEX source is changed. The choice is logged:
+  `[Launch] Performance switches: ...`.
+- `build/ntdll-unix/server_ios.c`: with `MADEIRA_NO_PROBES` set, the 20 s thread
+  sampler and the `[wprof]` burst profiler (both `thread_suspend` the game's
+  threads) are not started. The `[xp]` counter probe stays. Unset: unchanged.
+- The runtime log gets `[Status] +Ns thermal=... lowPower=... footprint=...
+  available=...` every 5 s while a game runs, to tell iOS throttling from the game
+  waiting when the whole game freezes for seconds.
+
+Checks: `ci/test_performance_switches.py` (source wiring; the Swift logic check
+`PerformanceSwitchCheck.swift` runs when `swiftc` is available) and host check
+`check-quiet-probes.py`. Not device-tested; the Swift sources were not compiled in
+this workspace. Whether either switch speeds a game up is not measured.
+
 ## Scoped Madeira compatibility ports for v0.2.1 (2026-10-03)
 
 These are selected source ports, based on Iridium PR61 commit
